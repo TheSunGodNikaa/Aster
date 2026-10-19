@@ -1,0 +1,176 @@
+use eframe::egui;
+
+use crate::{
+    database::Database,
+    date::local_date,
+    screens::{self, WorkspacePage},
+    theme,
+};
+
+const BACKGROUND_PNG: &[u8] = include_bytes!("../assets/aster-background.png");
+
+#[derive(Clone)]
+pub(crate) enum Stage {
+    SelectYearAndDate,
+    FirstRunSetup,
+    Login,
+    Main,
+    Error(String),
+}
+
+pub(crate) struct AsterApp {
+    pub(crate) db: Option<Database>,
+    pub(crate) stage: Stage,
+    pub(crate) background: Option<egui::TextureHandle>,
+    pub(crate) background_error: Option<String>,
+    pub(crate) financial_years: Vec<i32>,
+    pub(crate) selected_year: i32,
+    pub(crate) date_text: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) confirm_password: String,
+    pub(crate) current_user: String,
+    pub(crate) message: String,
+    pub(crate) workspace_page: WorkspacePage,
+    pub(crate) open_pages: Vec<WorkspacePage>,
+    pub(crate) sidebar_collapsed: bool,
+    pub(crate) display_name: String,
+    pub(crate) profile_email: String,
+    pub(crate) profile_message: String,
+    pub(crate) current_password: String,
+    pub(crate) new_password: String,
+    pub(crate) confirm_new_password: String,
+    pub(crate) reduced_motion: bool,
+    pub(crate) compact_density: bool,
+    pub(crate) show_tooltips: bool,
+}
+
+impl AsterApp {
+    pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::set_light_theme(&cc.egui_ctx);
+        let (year, month, day) = local_date();
+        let current_start = if month >= 4 { year } else { year - 1 };
+        let (db, years, stage) = match Database::open() {
+            Ok(db) => match db.financial_years() {
+                Ok(years) => (Some(db), years, Stage::SelectYearAndDate),
+                Err(error) => {
+                    crate::logging::log_message("ERROR", &error);
+                    (None, Vec::new(), Stage::Error(error))
+                }
+            },
+            Err(error) => {
+                crate::logging::log_message("ERROR", &error);
+                (None, Vec::new(), Stage::Error(error))
+            }
+        };
+
+        let (background, background_error) = match image::load_from_memory(BACKGROUND_PNG) {
+            Ok(image) => {
+                let image = image.to_rgba8();
+                let size = [image.width() as usize, image.height() as usize];
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+                (
+                    Some(cc.egui_ctx.load_texture(
+                        "aster-background",
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    )),
+                    None,
+                )
+            }
+            Err(error) => {
+                crate::logging::log_message(
+                    "ERROR",
+                    &format!("Could not load ASTER background: {error}"),
+                );
+                (None, Some(error.to_string()))
+            }
+        };
+
+        Self {
+            db,
+            stage,
+            background,
+            background_error,
+            financial_years: years,
+            selected_year: current_start,
+            date_text: format!("{day:02}/{month:02}/{year}"),
+            username: String::new(),
+            password: String::new(),
+            confirm_password: String::new(),
+            current_user: String::new(),
+            message: String::new(),
+            workspace_page: WorkspacePage::Dashboard,
+            open_pages: vec![WorkspacePage::Dashboard],
+            sidebar_collapsed: false,
+            display_name: String::new(),
+            profile_email: String::new(),
+            profile_message: String::new(),
+            current_password: String::new(),
+            new_password: String::new(),
+            confirm_new_password: String::new(),
+            reduced_motion: false,
+            compact_density: false,
+            show_tooltips: true,
+        }
+    }
+
+    pub(crate) fn open_page(&mut self, page: WorkspacePage) {
+        self.workspace_page = page;
+        if !self.open_pages.contains(&page) {
+            self.open_pages.push(page);
+        }
+    }
+
+    pub(crate) fn close_page(&mut self, page: WorkspacePage) {
+        if page == WorkspacePage::Dashboard || self.open_pages.len() == 1 {
+            return;
+        }
+        self.open_pages.retain(|open| *open != page);
+        if self.workspace_page == page {
+            self.workspace_page = *self.open_pages.last().unwrap_or(&WorkspacePage::Dashboard);
+        }
+    }
+
+    pub(crate) fn set_stage(&mut self, stage: Stage, ctx: &egui::Context) {
+        self.stage = stage;
+        match self.stage {
+            Stage::SelectYearAndDate => {
+                self.resize_small(ctx, "ASTER · Financial Year and Date", [540.0, 360.0])
+            }
+            Stage::FirstRunSetup => {
+                self.resize_small(ctx, "ASTER · Administrator Setup", [500.0, 370.0])
+            }
+            Stage::Login => self.resize_small(ctx, "ASTER · Sign In", [500.0, 340.0]),
+            Stage::Main => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                    "ASTER Billing · Workspace".into(),
+                ));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            }
+            Stage::Error(_) => self.resize_small(ctx, "ASTER · Startup Error", [540.0, 300.0]),
+        }
+    }
+
+    fn resize_small(&self, ctx: &egui::Context, title: &str, size: [f32; 2]) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.into()));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(
+            size[0], size[1],
+        )));
+    }
+}
+
+impl eframe::App for AsterApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        match self.stage.clone() {
+            Stage::SelectYearAndDate => self.show_year_and_date(ctx),
+            Stage::FirstRunSetup => self.show_first_run_setup(ctx),
+            Stage::Login => self.show_login(ctx),
+            Stage::Main => self.show_main(ctx),
+            Stage::Error(error) => screens::show_error(ctx, &error),
+        }
+    }
+}

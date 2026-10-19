@@ -1,24 +1,25 @@
-use eframe::egui;
+mod app;
+mod database;
+mod date;
+mod logging;
+mod screens;
+mod theme;
 
 fn main() -> eframe::Result<()> {
-    let options = eframe::NativeOptions::default();
+    logging::log_message("INFO", "Starting ASTER Billing");
+
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_title("ASTER · Select date and financial year")
+            .with_inner_size([540.0, 360.0])
+            .with_min_inner_size([500.0, 330.0])
+            .with_resizable(false),
+        ..Default::default()
+    };
 
     eframe::run_native(
-        "ASTER",
+        "ASTER Billing",
         options,
-        Box::new(|_cc| {
-            Ok(Box::new(AsterApp))
-        }),
+        Box::new(|cc| Ok(Box::new(app::AsterApp::new(cc)))),
     )
-}
-
-struct AsterApp;
-
-impl eframe::App for AsterApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("ASTER Billing ERP");
-            ui.label("Development environment verified.");
-        });
-    }
 }
