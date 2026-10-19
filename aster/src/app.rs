@@ -9,6 +9,9 @@ use crate::{
 
 const BACKGROUND_PNG: &[u8] = include_bytes!("../assets/aster-background.png");
 
+/// Smallest size the main workspace can be shrunk to before the layout breaks.
+const MAIN_MIN_SIZE: [f32; 2] = [1100.0, 680.0];
+
 #[derive(Clone)]
 pub(crate) enum Stage {
     SelectYearAndDate,
@@ -146,6 +149,10 @@ impl AsterApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(
                     "ASTER Billing · Workspace".into(),
                 ));
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::Vec2::new(
+                    MAIN_MIN_SIZE[0],
+                    MAIN_MIN_SIZE[1],
+                )));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
             }
@@ -156,6 +163,10 @@ impl AsterApp {
     fn resize_small(&self, ctx: &egui::Context, title: &str, size: [f32; 2]) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+        // Reset the minimum first so a previous workspace minimum can't block shrinking.
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::Vec2::new(
+            size[0], size[1],
+        )));
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.into()));
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(
             size[0], size[1],
