@@ -1,15 +1,3 @@
-Below is a complete implementation brief you can paste into your coding agent in VS Code. It tells the agent how to build ASTER from the ground up, in phases, with working features and tests—not just a nice-looking mockup.
-
-I've based the business modules on your uploaded legacy-software reference and `concept_db.txt` schema.&#x20;
-
-adhav.docx
-
-concept_db.txt
-
-
-
-Recommended project: `D:\PROJECT\ASTER` · Rust + egui + SQLite · Windows desktop · No MDB data import
-
 # ASTER — Complete Coding Agent Implementation Specification
 
 ## 1. Your role
@@ -52,7 +40,7 @@ Use SQLite for persistent data. Keep database operations and business rules sepa
 ## 3. Project location and data policy
 
 Project root:\
-D:\PROJECT\ASTER
+C:\Users\TheSunGod\Documents\Project\Aster\
 
 Create a clean project if necessary. Inspect the current directory before changing anything. Do not overwrite useful files without checking them first.
 
@@ -1002,21 +990,3 @@ At the end of every phase, report:
 - Build and test results.
 - Known issues.
 - Next phase.
-
-## First action
-
-Start with Phase 1 only.
-
-Inspect the environment and project directory. Verify the Rust toolchain and Windows prerequisites. Create the smallest working eframe application, run it, and verify it compiles.
-
-Do not begin implementing the entire billing system until the foundation is confirmed working. Create a Git checkpoint immediately after the first successful build.
-
-## How to use this with your coding agent
-
-1. Open `D:\PROJECT\ASTER` in your coding agent.
-2. Paste the complete specification above.
-3. Let it finish Phase 1 only and verify the app actually launches.
-4. Ask it to continue to Phase 2 after the first Git checkpoint.
-5. Continue phase by phase; don't let it generate the entire ERP in one shot.
-
-One critical recommendation: Keep the source code in a Git repository and push it to a remote repository. Also configure regular database backups to a separate drive or cloud location. Since you lost your previous HDD, protecting the new work is just as important as building it.

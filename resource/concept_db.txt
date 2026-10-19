@@ -1,0 +1,775 @@
+-- ============================================================
+-- Pharma wholesale billing software — SQLite schema
+-- Redesigned from the legacy VB6 / MS Access (database.MDB) structure.
+--
+-- Design principles applied:
+--   1. Money stored as INTEGER paise (never REAL) — avoids float
+--      rounding errors that the old schema had everywhere.
+--   2. Real foreign keys instead of denormalized name-copies in
+--      every child row (the old schema repeated Customer_Name,
+--      Product_Name etc. in every transaction row).
+--   3. Batch/expiry is a first-class table, not flattened into
+--      every stock and sale row — this is what makes FEFO issuing
+--      and expiry alerts a simple query instead of manual work.
+--   4. One unified `invoices` + `invoice_items` pair with a
+--      `invoice_type` column, instead of ~8 near-duplicate
+--      parent/child table pairs (Sales_Parent/Child,
+--      Purchase_Parent/Child, Credit_Parent/Child, Debit_Parent/
+--      Child, Delivery_Parent/Child, DSales_Parent/Child...).
+--   5. One `ledger_entries` table for both customer and supplier
+--      money movement, instead of separate Receipt/payment/
+--      SalesAccount/PurchaseAccount tables that had to be kept
+--      in sync by hand.
+--   6. GSTR1 / GSTR3B / HSN summary are NOT stored tables (the old
+--      DB stored and re-synced these manually, which risks
+--      staleness). Generate them as SQL views or on-demand report
+--      queries from invoices/invoice_items instead — see bottom.
+-- ============================================================
+
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;      -- better concurrent read performance
+PRAGMA synchronous = NORMAL;
+
+-- ---------- App-wide settings (single row: your father's company) ----------
+CREATE TABLE app_settings (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    company_name        TEXT NOT NULL,
+    door_no             TEXT,
+    street              TEXT,
+    place               TEXT,
+    city                TEXT,
+    pincode             TEXT,
+    phone               TEXT,
+    mobile              TEXT,
+    email               TEXT,
+    gstin               TEXT,
+    dl_no               TEXT,           -- drug license number
+    invoice_prefix      TEXT DEFAULT 'INV',
+    financial_year_start DATE,          -- e.g. 2026-04-01, for archiving/reports
+    invoice_footer_message TEXT,        -- old `invmsg` table, e.g. terms/thank-you line
+    expiry_alert_months INTEGER DEFAULT 3,  -- old `Expariy` table (alert threshold)
+    updated_at          TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('admin','staff')),
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+
+-- ---------- Reference / master data ----------
+CREATE TABLE states (
+    code TEXT PRIMARY KEY,     -- GST state code, e.g. '33'
+    name TEXT NOT NULL
+);
+
+CREATE TABLE areas (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE manufacturers (        -- old CompanyMaster/ACompany (drug manufacturers you distribute for)
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE agents (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    code   TEXT UNIQUE,
+    name   TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+);
+
+-- ---------- Parties ----------
+CREATE TABLE customers (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    code                TEXT UNIQUE,
+    name                TEXT NOT NULL,
+    door_no             TEXT,
+    street              TEXT,
+    place               TEXT,
+    city                TEXT,
+    pincode             TEXT,
+    state_code          TEXT REFERENCES states(code),
+    area_id             INTEGER REFERENCES areas(id),
+    phone               TEXT,
+    mobile              TEXT,
+    email               TEXT,
+    gstin               TEXT,
+    dl_no               TEXT,
+    aadhar_no           TEXT,
+    credit_limit_paise  INTEGER NOT NULL DEFAULT 0,
+    discount_percent    REAL NOT NULL DEFAULT 0,
+    is_locked           INTEGER NOT NULL DEFAULT 0,   -- blocked from new sales
+    active              INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_customers_name ON customers(name);
+
+CREATE TABLE suppliers (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    code                TEXT UNIQUE,
+    name                TEXT NOT NULL,
+    door_no             TEXT,
+    street              TEXT,
+    place               TEXT,
+    city                TEXT,
+    pincode             TEXT,
+    state_code          TEXT REFERENCES states(code),
+    phone               TEXT,
+    mobile              TEXT,
+    gstin               TEXT,
+    dl_no               TEXT,
+    credit_limit_paise  INTEGER NOT NULL DEFAULT 0,
+    discount_percent    REAL NOT NULL DEFAULT 0,
+    active              INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_suppliers_name ON suppliers(name);
+
+-- ---------- Products & stock ----------
+CREATE TABLE products (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    code              TEXT UNIQUE,
+    name              TEXT NOT NULL,
+    description       TEXT,
+    pack              TEXT,             -- e.g. '10 S', '30 GM'
+    hsn_code          TEXT,
+    uqc               TEXT DEFAULT 'NOS',   -- unit quantity code for GST filing, e.g. NOS, KGS, BOT, STRP
+    gst_percent       REAL NOT NULL DEFAULT 0,
+    manufacturer_id   INTEGER REFERENCES manufacturers(id),
+    reorder_level     INTEGER NOT NULL DEFAULT 0,
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_products_name ON products(name);
+CREATE INDEX idx_products_hsn ON products(hsn_code);
+
+-- Each purchased lot of a product. This is the heart of pharma stock control.
+CREATE TABLE batches (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id          INTEGER NOT NULL REFERENCES products(id),
+    batch_no            TEXT NOT NULL,
+    expiry_date         DATE,                 -- store as real DATE, not the old free-text '01/2027'
+    mrp_paise           INTEGER NOT NULL DEFAULT 0,
+    purchase_price_paise INTEGER NOT NULL DEFAULT 0,
+    sales_price_paise   INTEGER NOT NULL DEFAULT 0,
+    ptr_paise           INTEGER NOT NULL DEFAULT 0,   -- price to retailer
+    qty_on_hand         INTEGER NOT NULL DEFAULT 0,
+    free_qty_on_hand    INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT DEFAULT (datetime('now')),
+    UNIQUE (product_id, batch_no)
+);
+CREATE INDEX idx_batches_product ON batches(product_id);
+CREATE INDEX idx_batches_expiry ON batches(expiry_date);   -- powers expiry alerts
+
+-- Full audit trail of every stock change (replaces StockAdjustment/StockModify/
+-- the implicit stock changes buried inside Purchase_Child/Sales_Child).
+CREATE TABLE stock_movements (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id         INTEGER NOT NULL REFERENCES batches(id),
+    invoice_item_id  INTEGER REFERENCES invoice_items(id),  -- null for manual adjustments
+    movement_type    TEXT NOT NULL CHECK (movement_type IN
+                        ('purchase','purchase_return','sale','sale_return',
+                         'adjustment','transfer_in','transfer_out')),
+    qty_change       INTEGER NOT NULL,     -- +ve = stock in, -ve = stock out
+    free_qty_change  INTEGER NOT NULL DEFAULT 0,
+    balance_after    INTEGER NOT NULL,     -- qty_on_hand snapshot after this movement
+    remarks          TEXT,
+    created_at       TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_stock_movements_batch ON stock_movements(batch_id);
+
+-- ---------- Invoices (unified transaction table) ----------
+-- One table for every document type instead of 8 parent/child pairs.
+CREATE TABLE invoices (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_no          TEXT NOT NULL,
+    invoice_type        TEXT NOT NULL CHECK (invoice_type IN
+                            ('purchase','purchase_return','sale','sale_return',
+                             'delivery_challan','credit_note','debit_note')),
+    financial_year      TEXT NOT NULL,        -- e.g. '2026-27', drives numbering + archiving/reports
+    invoice_date        DATE NOT NULL DEFAULT (date('now')),
+    note_type           TEXT CHECK (note_type IN ('financial','commercial')), -- CNote/DNote 'Type': GST-relevant vs internal adjustment
+    note_reason         TEXT,                 -- CNote/DNote 'Reason', e.g. 'Rate difference', 'Damaged goods'
+    party_type          TEXT NOT NULL CHECK (party_type IN ('customer','supplier')),
+    customer_id         INTEGER REFERENCES customers(id),
+    supplier_id         INTEGER REFERENCES suppliers(id),
+    party_gstin_snap    TEXT,                  -- GSTIN as it was AT THE TIME of this invoice — legal documents must stay frozen
+    agent_id            INTEGER REFERENCES agents(id),
+    reference_invoice_id INTEGER REFERENCES invoices(id),  -- e.g. a sale_return points back at the sale
+    subtotal_paise      INTEGER NOT NULL DEFAULT 0,
+    discount_paise      INTEGER NOT NULL DEFAULT 0,
+    taxable_paise       INTEGER NOT NULL DEFAULT 0,
+    cgst_paise          INTEGER NOT NULL DEFAULT 0,
+    sgst_paise          INTEGER NOT NULL DEFAULT 0,
+    igst_paise          INTEGER NOT NULL DEFAULT 0,
+    round_off_paise     INTEGER NOT NULL DEFAULT 0,
+    other_charges_paise INTEGER NOT NULL DEFAULT 0,
+    net_amount_paise    INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('draft','posted','cancelled')),
+    created_by          INTEGER REFERENCES users(id),
+    created_at          TEXT DEFAULT (datetime('now')),
+    CHECK (
+        (party_type = 'customer' AND customer_id IS NOT NULL AND supplier_id IS NULL) OR
+        (party_type = 'supplier' AND supplier_id IS NOT NULL AND customer_id IS NULL)
+    )
+);
+CREATE UNIQUE INDEX idx_invoices_no_type_fy ON invoices(invoice_type, financial_year, invoice_no);
+CREATE INDEX idx_invoices_date ON invoices(invoice_date);
+CREATE INDEX idx_invoices_fy ON invoices(financial_year);
+CREATE INDEX idx_invoices_customer ON invoices(customer_id);
+CREATE INDEX idx_invoices_supplier ON invoices(supplier_id);
+
+CREATE TABLE invoice_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id          INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    sno                 INTEGER NOT NULL,           -- line number on the printed invoice
+    product_id          INTEGER NOT NULL REFERENCES products(id),
+    batch_id            INTEGER REFERENCES batches(id),
+    -- snapshots: what the product looked like AT THE TIME of this invoice.
+    -- Products get renamed/repriced later; old invoices must stay frozen.
+    product_name_snap   TEXT NOT NULL,
+    hsn_snap            TEXT,
+    pack_snap           TEXT,
+    qty                 INTEGER NOT NULL,
+    free_qty            INTEGER NOT NULL DEFAULT 0,
+    mrp_paise           INTEGER NOT NULL DEFAULT 0,
+    ptr_paise           INTEGER NOT NULL DEFAULT 0,   -- price to retailer, used for margin reporting
+    rate_paise          INTEGER NOT NULL DEFAULT 0,   -- price actually billed at
+    discount_percent    REAL NOT NULL DEFAULT 0,
+    gst_percent         REAL NOT NULL DEFAULT 0,
+    cgst_paise          INTEGER NOT NULL DEFAULT 0,
+    sgst_paise          INTEGER NOT NULL DEFAULT 0,
+    igst_paise          INTEGER NOT NULL DEFAULT 0,
+    cess_paise          INTEGER NOT NULL DEFAULT 0,
+    line_total_paise    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_invoice_items_invoice ON invoice_items(invoice_id);
+CREATE INDEX idx_invoice_items_batch ON invoice_items(batch_id);
+
+-- ---------- Money ledger (unified receipts + payments) ----------
+CREATE TABLE ledger_entries (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_type        TEXT NOT NULL CHECK (party_type IN ('customer','supplier')),
+    customer_id       INTEGER REFERENCES customers(id),
+    supplier_id       INTEGER REFERENCES suppliers(id),
+    entry_date        DATE NOT NULL DEFAULT (date('now')),
+    entry_type        TEXT NOT NULL CHECK (entry_type IN
+                        ('invoice','receipt','payment','opening_balance')),
+    invoice_id        INTEGER REFERENCES invoices(id),
+    debit_paise       INTEGER NOT NULL DEFAULT 0,   -- party owes you more (sale, or you owe supplier more)
+    credit_paise      INTEGER NOT NULL DEFAULT 0,   -- money received/paid, reduces balance
+    cheque_no         TEXT,
+    cheque_date       DATE,
+    remarks           TEXT,
+    created_at        TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_ledger_customer ON ledger_entries(customer_id, entry_date);
+CREATE INDEX idx_ledger_supplier ON ledger_entries(supplier_id, entry_date);
+
+-- ---------- Printer profiles (dot-matrix vs laser) ----------
+CREATE TABLE printers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('dot_matrix','laser','thermal')),
+    control_codes TEXT,        -- raw ESC/POS-style control sequence, old Printer.Charcter
+    is_default   INTEGER NOT NULL DEFAULT 0
+);
+
+-- ---------- Invoice numbering ----------
+-- Generates sequential numbers per (invoice_type, financial_year) so each
+-- document type restarts its own sequence every financial year, mirroring
+-- how the old software began a fresh MDB per year. No more separate DB
+-- files needed for this — it's just a row here.
+CREATE TABLE invoice_counters (
+    invoice_type    TEXT NOT NULL,
+    financial_year  TEXT NOT NULL,
+    last_number     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (invoice_type, financial_year)
+);
+
+-- ---------- Schema version tracking ----------
+CREATE TABLE schema_migrations (
+    version    INTEGER PRIMARY KEY,
+    applied_at TEXT DEFAULT (datetime('now'))
+);
+INSERT INTO schema_migrations (version) VALUES (1);
+
+-- ============================================================
+-- Triggers: keep batches.qty_on_hand in sync with stock_movements
+-- so you never have to remember to update both tables by hand.
+-- ============================================================
+CREATE TRIGGER trg_stock_movement_apply
+AFTER INSERT ON stock_movements
+BEGIN
+    UPDATE batches
+    SET qty_on_hand = qty_on_hand + NEW.qty_change,
+        free_qty_on_hand = free_qty_on_hand + NEW.free_qty_change
+    WHERE id = NEW.batch_id;
+END;
+
+-- ============================================================
+-- Reporting views — generated on demand, never stored.
+-- This replaces GSTR1 / GSTR1NEW / GSTR3B / HSN_SUMMARY tables,
+-- which the old system had to keep manually synced (a source of bugs).
+-- ============================================================
+
+-- HSN-wise summary for the current data set
+CREATE VIEW v_hsn_summary AS
+SELECT
+    ii.hsn_snap                                   AS hsn,
+    SUM(ii.qty)                                   AS total_qty,
+    SUM(ii.line_total_paise)                      AS total_value_paise,
+    SUM(ii.line_total_paise - ii.cgst_paise - ii.sgst_paise - ii.igst_paise) AS taxable_paise,
+    SUM(ii.cgst_paise)                            AS cgst_paise,
+    SUM(ii.sgst_paise)                            AS sgst_paise,
+    SUM(ii.igst_paise)                            AS igst_paise
+FROM invoice_items ii
+JOIN invoices i ON i.id = ii.invoice_id
+WHERE i.invoice_type = 'sale' AND i.status = 'posted'
+GROUP BY ii.hsn_snap;
+
+-- Batches nearing expiry (e.g. within 90 days) — for daily alerts
+CREATE VIEW v_expiring_soon AS
+SELECT b.id AS batch_id, p.name AS product_name, b.batch_no, b.expiry_date, b.qty_on_hand
+FROM batches b
+JOIN products p ON p.id = b.product_id
+WHERE b.qty_on_hand > 0
+  AND b.expiry_date IS NOT NULL
+  AND julianday(b.expiry_date) - julianday('now') <= 90
+ORDER BY b.expiry_date ASC;
+
+-- Customer outstanding balance
+CREATE VIEW v_customer_balance AS
+SELECT customer_id, SUM(debit_paise) - SUM(credit_paise) AS balance_paise
+FROM ledger_entries
+WHERE party_type = 'customer'
+GROUP BY customer_id;
+
+-- Supplier outstanding balance
+CREATE VIEW v_supplier_balance AS
+SELECT supplier_id, SUM(debit_paise) - SUM(credit_paise) AS balance_paise
+FROM ledger_entries
+WHERE party_type = 'supplier'
+GROUP BY supplier_id;
+
+database.mdb converted to sqllite
+CREATE TABLE ACompany (
+    Name TEXT,
+    Door_No TEXT,
+    Street TEXT,
+    Place TEXT,
+    City TEXT,
+    PinCode TEXT,
+    Phone TEXT,
+    Cell TEXT,
+    Email TEXT,
+    Fax TEXT,
+    Tin TEXT,
+    GSTIN TEXT,
+    DlNo TEXT,
+    Cst TEXT
+);
+
+CREATE TABLE Admin (
+    UserName TEXT,
+    Password TEXT
+);
+
+CREATE TABLE Agent (
+    Agent_Code TEXT,
+    Agent_Name TEXT,
+    salesUpdate TEXT
+);
+
+CREATE TABLE Area (
+    Area_code TEXT,
+    Area_Name TEXT
+);
+
+CREATE TABLE CNote (
+    GSTIN TEXT,
+    Invoice_No TEXT,
+    Invoice_Date TEXT,
+    CNote_No TEXT,
+    CNote_Date TEXT,
+    Type TEXT,
+    Reason TEXT,
+    Place TEXT,
+    Invoice_Value REAL,
+    Rate REAL,
+    Taxable REAL,
+    Cess REAL
+);
+
+CREATE TABLE CompanyMaster (
+    Company_Code TEXT,
+    Company_Name TEXT,
+    Company_Street TEXT,
+    Company_Place TEXT,
+    Company_City TEXT,
+    Company_Pincode TEXT
+);
+
+CREATE TABLE Credit_Child (
+    Inv_no TEXT,
+    Sel_Date TEXT,
+    Customer_Code TEXT,
+    Prodcut_Code TEXT,
+    Prodcut_Name TEXT,
+    Pack TEXT,
+    Batch TEXT,
+    Ex_date TEXT,
+    SalesFlag TEXT,
+    Qty REAL,
+    Free REAL,
+    Purchase_Price REAL,
+    Sales_Price REAL,
+    Mrp REAL,
+    Discount REAL,
+    SGST_per REAL,
+    CGST_per REAL,
+    IGST_per REAL,
+    Sno REAL,
+    Stockno REAL,
+    Transfer REAL,
+    Gst_value REAL,
+    CGst_value REAL,
+    Sgst_value REAL,
+    Igst_value REAL,
+    Product_value REAL,
+    Margin REAL,
+    Invno_Org TEXT,
+    SelDate_Org TEXT
+);
+
+CREATE TABLE Credit_Parent (
+    Inv_No TEXT,
+    Sel_Date TEXT,
+    Bill_No TEXT,
+    Bill_Date TEXT,
+    Customer_Code TEXT,
+    Customer_Name TEXT,
+    Customer_Place TEXT,
+    Customer_City TEXT,
+    Customer_State TEXT,
+    GSTN TEXT,
+    CreditNo TEXT,
+    CreditAmount TEXT,
+    Transfer TEXT,
+    Addcharges REAL,
+    LessCharges REAL,
+    OtherCharges REAL,
+    NetAmount REAL,
+    Roundoff REAL,
+    BillDisount REAL,
+    TotalPval REAL,
+    TotalDiscountVal REAL,
+    TotalGST REAL,
+    TotalSGST REAL,
+    TotalCGST REAL,
+    TotalIGST REAL,
+    Type TEXT,
+    AmountTransfer TEXT,
+    Delivery_no REAL
+);
+
+CREATE TABLE CustomerMaster (
+    Customer_Code TEXT,
+    Customer_Name TEXT,
+    Customer_Dno TEXT,
+    Customer_Street TEXT,
+    Customer_Place TEXT,
+    Customer_City TEXT,
+    Customer_Pincode TEXT,
+    Customer_State TEXT,
+    Eamil TEXT,
+    Mobile TEXT,
+    Tin_no TEXT,
+    GSTIN TEXT,
+    Adhar_no TEXT,
+    Credit_Limit TEXT,
+    Discount_Percentage TEXT,
+    Locking TEXT,
+    Phone TEXT,
+    DLNo TEXT,
+    Area_code TEXT,
+    Area_name TEXT,
+    Transfer TEXT,
+    Cst TEXT,
+    salesUpdate TEXT,
+    Statecode REAL
+);
+
+CREATE TABLE Debit_Child (
+    Debit_No TEXT,
+    Debit_Date TEXT,
+    Supplier_Code TEXT,
+    Supplier_Name TEXT,
+    Prodcut_Code TEXT,
+    Prodcut_Name TEXT,
+    Pack TEXT,
+    PurchaseFlag TEXT,
+    Batch TEXT,
+    Ex_date TEXT,
+    Qty REAL,
+    Free REAL,
+    FreeForm REAL,
+    Purchase_Price REAL,
+    Sales_Price REAL,
+    Mrp REAL,
+    Discount REAL,
+    SGST_per REAL,
+    CGST_per REAL,
+    IGST_per REAL,
+    Sno REAL,
+    Stockno REAL,
+    TransFer REAL,
+    Gst_Value REAL,
+    CGst_Value REAL,
+    Sgst_value REAL,
+    IGst_value REAL,
+    Product_value REAL,
+    Invno_Org TEXT,
+    InvDate_Org REAL
+);
+
+CREATE TABLE Debit_Parent (
+    Debit_No TEXT,
+    Debit_Date TEXT,
+    Inv_No REAL,
+    Inv_Date TEXT,
+    Supplier_Code TEXT,
+    Supplier_Name TEXT,
+    GSTN REAL,
+    State_Code REAL,
+    State_Name TEXT,
+    Total_Amount REAL,
+    Roundoff REAL,
+    Addcharges REAL,
+    LessCharges REAL,
+    OtherCharges REAL,
+    NetAmount REAL,
+    BillDisount REAL,
+    TotalPval REAL,
+    TotalDiscountVal REAL,
+    TotalSGST REAL,
+    TotalCGST REAL,
+    TotalIGST REAL,
+    TotalGST REAL,
+    Type TEXT,
+    Transfer TEXT,
+    M_delivery TEXT
+);
+
+CREATE TABLE Deliver_Child (
+    Delivery_no TEXT,
+    Sel_Date TEXT,
+    Customer_Code TEXT,
+    Prodcut_Code TEXT,
+    Prodcut_Name TEXT,
+    Pack TEXT,
+    Batch TEXT,
+    Ex_date TEXT,
+    Qty TEXT,
+    Free TEXT,
+    Rate TEXT,
+    Sno REAL,
+    Salesflag TEXT,
+    StockNo REAL,
+    Transfer TEXT
+);
+
+CREATE TABLE Delivery_Parent (
+    Delivery_no TEXT,
+    Sel_Date TEXT,
+    Customer_Code TEXT,
+    Customer_Name TEXT,
+    Customer_Place TEXT,
+    Customer_City TEXT,
+    Transfer TEXT,
+    M_delivery TEXT,
+    BILL_PROCE TEXT
+);
+
+CREATE TABLE DSales_Child (
+    Inv_no TEXT,
+    Sel_Date TEXT,
+    Customer_Code TEXT,
+    Prodcut_Code TEXT,
+    Prodcut_Name TEXT,
+    Pack TEXT,
+    Batch TEXT,
+    Ex_date TEXT,
+    Qty REAL,
+    Purchase_Price REAL,
+    Sales_Price REAL,
+    Special_Discount REAL,
+    Discount REAL,
+    SalesFlag TEXT,
+    Free REAL,
+    Mrp TEXT,
+    Delivery REAL,
+    Sno REAL,
+    StocKno REAL,
+    Agent_code TEXT,
+    SalesUpdate TEXT,
+    SGST_per REAL,
+    CGST_per REAL,
+    IGST_per REAL,
+    GST_VALUE REAL,
+    CGst_Value REAL,
+    SGst_value REAL,
+    IGst_value REAL,
+    Product_value REAL,
+    S_Value REAL,
+    Margin REAL
+);
+
+CREATE TABLE DSales_Parent (
+    Inv_No TEXT,
+    Sel_Date TEXT,
+    Customer_Code TEXT,
+    Customer_Name TEXT,
+    Customer_Place TEXT,
+    Customer_City TEXT,
+    Customer_State TEXT,
+    GSTN TEXT,
+    Roundoff TEXT,
+    CreditNo REAL,
+    CreditAmount REAL,
+    Transfer TEXT,
+    Addcharges REAL,
+    LessCharges REAL,
+    OtherCharges REAL,
+    NetAmount REAL,
+    BillDisount REAL,
+    TotalPval REAL,
+    TotalDiscountVal REAL,
+    TotalSGst REAL,
+    TotalCGst REAL,
+    TotalIGst REAL,
+    TotalGst REAL,
+    Type TEXT,
+    OrderRefer TEXT,
+    Delivery_no TEXT,
+    Invoice_Mode TEXT,
+    UserName TEXT,
+    M_delivery TEXT,
+    Agent_code TEXT,
+    Agent_Name TEXT,
+    SalesUpdate TEXT,
+    printopt REAL
+);
+
+CREATE TABLE Expariy (
+    Exparaiy TEXT
+);
+
+CREATE TABLE GSTR1 (
+    GSTIN TEXT,
+    Name TEXT,
+    Invoice_No TEXT,
+    Invoice_Date TEXT,
+    Invoice_Value REAL,
+    Place TEXT,
+    Reverse_Charge REAL,
+    Invoice_Type REAL,
+    ECommerce_GSTIN REAL,
+    Rate REAL,
+    Taxable REAL,
+    Cess REAL
+);
+
+CREATE TABLE GSTR1NEW (
+    Sno TEXT,
+    Invoice_No TEXT,
+    GSTIN TEXT,
+    Supplier_Name TEXT,
+    Taxable TEXT,
+    TaxAmount REAL,
+    IGST_AMOUNT REAL,
+    CGST_AMOUNT REAL,
+    SGST_AMOUNT REAL,
+    RoundOff REAL,
+    Invoice_Amount REAL
+);
+
+CREATE TABLE HSN_SUMMARY (
+    Sno TEXT,
+    Supplier_Name TEXT,
+    GSTIN TEXT,
+    Place TEXT,
+    Invoice_No TEXT,
+    Invoice_date TEXT,
+    Invoice_Amount REAL,
+    Total_Amount REAL,
+    Discount_Amount REAL,
+    Rate REAL,
+    Taxable REAL,
+    IGST_AMOUNT REAL,
+    CGST_AMOUNT REAL,
+    SGST_AMOUNT REAL,
+    CESS_AMOUNT REAL
+);
+
+CREATE TABLE invmsg (
+    HSN REAL,
+    DESCRIPTION REAL,
+    UQC REAL,
+    TOTAL_QUANTITY REAL,
+    TOTAL_VALUE REAL,
+    TAXABLE_VALUE REAL,
+    IGST_AMOUNT REAL,
+    CGST_AMOUNT REAL,
+    SGST_AMOUNT REAL,
+    CESS_AMOUNT REAL,
+    invmsg TEXT
+);
+
+stockmonth.mdb converted to sqllite
+CREATE TABLE "Daymaster" (
+    "StockNo" TEXT,
+    "Purachse_No" TEXT,
+    "Purachse_Date" TEXT,
+    "Invioce_No" TEXT,
+    "Invioce_date" TEXT,
+    "Supplier_Code" TEXT,
+    "Supplier_Name" TEXT,
+    "HSN_Code" TEXT,
+    "Prodcut_Code" TEXT,
+    "Prodcut_Name" TEXT,
+    "Pack" TEXT,
+    "Batch" TEXT,
+    "Ex_date" TEXT,
+    "Qty" REAL DEFAULT 0,
+    "Free" REAL DEFAULT 0,
+    "FreeForm" TEXT,
+    "PurchaseFlag" TEXT,
+    "Purchase_Price" REAL DEFAULT 0.0,
+    "Sales_Price" REAL DEFAULT 0.0,
+    "Mrp" REAL DEFAULT 0.0,
+    "Discount" REAL DEFAULT 0.0,
+    "SGST_per" REAL DEFAULT 0.0,
+    "CGST_per" REAL DEFAULT 0.0,
+    "IGST_per" REAL DEFAULT 0.0,
+    "CESS_per" REAL DEFAULT 0.0,
+    "SGSTAMT" REAL DEFAULT 0.0,
+    "CGSTAMT" REAL DEFAULT 0.0,
+    "IGSTAMT" REAL DEFAULT 0.0,
+    "CESSAMT" REAL DEFAULT 0.0,
+    "PCOST" REAL DEFAULT 0.0,
+    "AQty" REAL DEFAULT 0.0,
+    "AFree" REAL DEFAULT 0.0,
+    "SalesUpdate" TEXT,
+    "vat" TEXT,
+    "Vsales" TEXT,
+    "StockTransfer" TEXT
+);
