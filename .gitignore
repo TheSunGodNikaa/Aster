@@ -1,0 +1,58 @@
+resource/adhav.docx
+resource/image (4).jpg
+
+
+# Rust build output
+aster/target/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# SQLite databases and temporary files
+*.db
+*.db3
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+
+# Backups and exported business data
+/backups/
+*.bak
+*.backup
+*.dump
+
+# Logs
+*.log
+/logs/
+
+# IDE and editor files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.old
+
+# Installer and packaged build output
+/dist/
+/release/
+*.msi
+*.exe
+*.pdb
