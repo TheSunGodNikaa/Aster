@@ -46,6 +46,8 @@ pub(crate) struct AsterApp {
     pub(crate) reduced_motion: bool,
     pub(crate) compact_density: bool,
     pub(crate) show_tooltips: bool,
+    pub(crate) pending_center: u8,
+    pub(crate) layout_ready: bool,
 }
 
 impl AsterApp {
@@ -115,6 +117,8 @@ impl AsterApp {
             reduced_motion: false,
             compact_density: false,
             show_tooltips: true,
+            pending_center: 0,
+            layout_ready: false,
         }
     }
 
@@ -139,12 +143,12 @@ impl AsterApp {
         self.stage = stage;
         match self.stage {
             Stage::SelectYearAndDate => {
-                self.resize_small(ctx, "ASTER · Financial Year and Date", [540.0, 360.0])
+                self.resize_small(ctx, "ASTER · Financial Year and Date", [800.0, 500.0])
             }
             Stage::FirstRunSetup => {
-                self.resize_small(ctx, "ASTER · Administrator Setup", [500.0, 370.0])
+                self.resize_small(ctx, "ASTER · Administrator Setup", [520.0, 640.0])
             }
-            Stage::Login => self.resize_small(ctx, "ASTER · Sign In", [500.0, 340.0]),
+            Stage::Login => self.resize_small(ctx, "ASTER · Sign In", [520.0, 560.0]),
             Stage::Main => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(
                     "ASTER Billing · Workspace".into(),
@@ -160,7 +164,7 @@ impl AsterApp {
         }
     }
 
-    fn resize_small(&self, ctx: &egui::Context, title: &str, size: [f32; 2]) {
+    fn resize_small(&mut self, ctx: &egui::Context, title: &str, size: [f32; 2]) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
         // Reset the minimum first so a previous workspace minimum can't block shrinking.
@@ -171,11 +175,27 @@ impl AsterApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(
             size[0], size[1],
         )));
+        // Centre once the new size has been applied (retried for a few frames).
+        self.pending_center = 8;
+        ctx.request_repaint();
     }
 }
 
 impl eframe::App for AsterApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // The first stage never goes through set_stage, so size/centre it here.
+        if !self.layout_ready {
+            self.layout_ready = true;
+            let stage = self.stage.clone();
+            self.set_stage(stage, ctx);
+        }
+        if self.pending_center > 0 {
+            self.pending_center -= 1;
+            if let Some(command) = egui::ViewportCommand::center_on_screen(ctx) {
+                ctx.send_viewport_cmd(command);
+            }
+            ctx.request_repaint();
+        }
         match self.stage.clone() {
             Stage::SelectYearAndDate => self.show_year_and_date(ctx),
             Stage::FirstRunSetup => self.show_first_run_setup(ctx),

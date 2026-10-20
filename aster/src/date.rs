@@ -1,24 +1,6 @@
 #[cfg(not(windows))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) fn parse_date(value: &str) -> Option<(i32, u32, u32)> {
-    let mut parts = value.split('/');
-    let day: u32 = parts.next()?.parse().ok()?;
-    let month: u32 = parts.next()?.parse().ok()?;
-    let year: i32 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() || !(1..=12).contains(&month) || year < 1900 {
-        return None;
-    }
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days_in_month = match month {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    };
-    (day > 0 && day <= days_in_month).then_some((year, month, day))
-}
-
 #[cfg(windows)]
 pub(crate) fn local_date() -> (i32, u32, u32) {
     #[repr(C)]

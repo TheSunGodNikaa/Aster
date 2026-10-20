@@ -166,12 +166,7 @@ fn message_is_ok(message: &str) -> bool {
 }
 
 /// Fades and slides content in once when a page is first shown.
-fn reveal(
-    ui: &mut egui::Ui,
-    key: &'static str,
-    index: usize,
-    content: impl FnOnce(&mut egui::Ui),
-) {
+fn reveal(ui: &mut egui::Ui, key: &'static str, index: usize, content: impl FnOnce(&mut egui::Ui)) {
     let ctx = ui.ctx().clone();
     let now = ui.input(|i| i.time);
     let start = ui.data_mut(|d| *d.get_temp_mut_or_insert_with(Id::new(key), || now));
@@ -196,7 +191,11 @@ impl AsterApp {
         ctx.data_mut(|d| {
             d.insert_temp(
                 Id::new("aster_anim_time"),
-                if self.reduced_motion { 0.0_f32 } else { 0.14_f32 },
+                if self.reduced_motion {
+                    0.0_f32
+                } else {
+                    0.14_f32
+                },
             )
         });
 
@@ -255,7 +254,7 @@ impl AsterApp {
                                     .color(PURPLE),
                             );
                             ui.label(
-                                RichText::new("MEDICAL WHOLESALE")
+                                RichText::new("Billing")
                                     .size(9.0)
                                     .strong()
                                     .color(SOFT),
@@ -290,8 +289,11 @@ impl AsterApp {
             .frame(egui::Frame::new().fill(Color32::WHITE))
             .show(ctx, |ui| {
                 let full = ui.max_rect();
-                ui.painter()
-                    .hline(full.x_range(), full.top() + 0.5, Stroke::new(1.0_f32, BORDER));
+                ui.painter().hline(
+                    full.x_range(),
+                    full.top() + 0.5,
+                    Stroke::new(1.0_f32, BORDER),
+                );
                 let connected = self.db.is_some();
                 ui.horizontal_centered(|ui| {
                     ui.add_space(18.0);
@@ -332,7 +334,11 @@ impl AsterApp {
         let sidebar_progress = if self.reduced_motion {
             if sidebar_target { 1.0 } else { 0.0 }
         } else {
-            ctx.animate_bool_with_time(egui::Id::new("aster_sidebar_animation"), sidebar_target, 0.2)
+            ctx.animate_bool_with_time(
+                egui::Id::new("aster_sidebar_animation"),
+                sidebar_target,
+                0.2,
+            )
         };
         if sidebar_progress > 0.0 && sidebar_progress < 1.0 {
             ctx.request_repaint();
@@ -493,8 +499,11 @@ fn show_open_tabs(ui: &mut egui::Ui, app: &mut AsterApp) {
 
                     let (rect, response) =
                         ui.allocate_exact_size(Vec2::new(width, HEADER_HEIGHT), Sense::click());
-                    let hover_t =
-                        ctx.animate_bool_with_time(width_id.with("hover"), response.hovered(), anim_time);
+                    let hover_t = ctx.animate_bool_with_time(
+                        width_id.with("hover"),
+                        response.hovered(),
+                        anim_time,
+                    );
                     let sel_t =
                         ctx.animate_bool_with_time(width_id.with("sel"), selected, anim_time * 1.3);
 
@@ -510,18 +519,27 @@ fn show_open_tabs(ui: &mut egui::Ui, app: &mut AsterApp) {
                         painter.rect_filled(
                             pill,
                             8.0,
-                            Color32::from_rgb(244, 242, 249).gamma_multiply(hover_t * (1.0 - sel_t)),
+                            Color32::from_rgb(244, 242, 249)
+                                .gamma_multiply(hover_t * (1.0 - sel_t)),
                         );
                     }
 
                     // Active tab: merges with the page below
                     if sel_t > 0.0 {
-                        let top = CornerRadius { nw: 10, ne: 10, sw: 0, se: 0 };
-                        let inner_top = CornerRadius { nw: 9, ne: 9, sw: 0, se: 0 };
-                        let outer = Rect::from_min_max(
-                            Pos2::new(rect.left(), rect.top() + 14.0),
-                            rect.max,
-                        );
+                        let top = CornerRadius {
+                            nw: 10,
+                            ne: 10,
+                            sw: 0,
+                            se: 0,
+                        };
+                        let inner_top = CornerRadius {
+                            nw: 9,
+                            ne: 9,
+                            sw: 0,
+                            se: 0,
+                        };
+                        let outer =
+                            Rect::from_min_max(Pos2::new(rect.left(), rect.top() + 14.0), rect.max);
                         painter.rect_filled(outer, top, BORDER.gamma_multiply(sel_t));
                         let inner = Rect::from_min_max(
                             outer.min + Vec2::new(1.0, 1.0),
@@ -549,7 +567,12 @@ fn show_open_tabs(ui: &mut egui::Ui, app: &mut AsterApp) {
                     let show_icon = width >= 120.0;
                     let text_x = rect.left() + if show_icon { 38.0 } else { 14.0 };
                     if show_icon {
-                        draw_icon(painter, Pos2::new(rect.left() + 21.0, cy), page.icon(), text_color);
+                        draw_icon(
+                            painter,
+                            Pos2::new(rect.left() + 21.0, cy),
+                            page.icon(),
+                            text_color,
+                        );
                     }
                     let reserve = if closable { 32.0 } else { 14.0 };
                     let avail = (rect.right() - reserve - text_x).max(0.0);
@@ -579,11 +602,7 @@ fn show_open_tabs(ui: &mut egui::Ui, app: &mut AsterApp) {
                             Pos2::new(rect.right() - 18.0, cy),
                             Vec2::splat(20.0),
                         );
-                        let close = ui.interact(
-                            close_rect,
-                            width_id.with("close"),
-                            Sense::click(),
-                        );
+                        let close = ui.interact(close_rect, width_id.with("close"), Sense::click());
                         if visible > 0.05 {
                             let painter = ui.painter();
                             if close.hovered() {
@@ -657,8 +676,11 @@ fn profile_button(ui: &mut egui::Ui, app: &AsterApp) -> egui::Response {
         );
     }
     let avatar = Pos2::new(rect.left() + 24.0, rect.center().y);
-    ui.painter()
-        .circle_filled(avatar, 16.0, mix(PURPLE_TINT, Color32::from_rgb(230, 222, 244), hover_t));
+    ui.painter().circle_filled(
+        avatar,
+        16.0,
+        mix(PURPLE_TINT, Color32::from_rgb(230, 222, 244), hover_t),
+    );
     ui.painter().text(
         avatar,
         egui::Align2::CENTER_CENTER,
@@ -729,7 +751,8 @@ fn collapse_button(ui: &mut egui::Ui, collapsed: bool) -> egui::Response {
 fn nav_group(ui: &mut egui::Ui, label: &str, collapsed: bool) {
     if collapsed {
         ui.add_space(8.0);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
         ui.painter().hline(
             (rect.left() + 18.0)..=(rect.right() - 18.0),
             rect.center().y,
@@ -839,10 +862,7 @@ fn draw_icon(painter: &egui::Painter, center: Pos2, icon: NavIcon, color: Color3
         }
         NavIcon::Truck => {
             painter.rect_stroke(
-                Rect::from_min_max(
-                    center + Vec2::new(-7.5, -5.5),
-                    center + Vec2::new(2.0, 3.0),
-                ),
+                Rect::from_min_max(center + Vec2::new(-7.5, -5.5), center + Vec2::new(2.0, 3.0)),
                 1.0,
                 stroke,
                 egui::StrokeKind::Inside,
@@ -964,10 +984,20 @@ fn pill(ui: &mut egui::Ui, text: &str, fg: Color32, bg: Color32) {
 }
 
 /// Shared button painter with an animated hover colour.
-fn button_base(ui: &mut egui::Ui, label: &str, width: f32, enabled: bool, primary: bool) -> egui::Response {
+fn button_base(
+    ui: &mut egui::Ui,
+    label: &str,
+    width: f32,
+    enabled: bool,
+    primary: bool,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
         Vec2::new(width, 34.0),
-        if enabled { Sense::click() } else { Sense::hover() },
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
     );
     let ctx = ui.ctx().clone();
     let t = ctx.animate_bool_with_time(response.id, enabled && response.hovered(), anim(&ctx));
@@ -989,11 +1019,19 @@ fn button_base(ui: &mut egui::Ui, label: &str, width: f32, enabled: bool, primar
             Color32::WHITE,
         );
     } else {
-        let fill = mix(Color32::from_rgb(250, 249, 252), Color32::from_rgb(243, 240, 249), t);
+        let fill = mix(
+            Color32::from_rgb(250, 249, 252),
+            Color32::from_rgb(243, 240, 249),
+            t,
+        );
         let stroke = mix(BORDER, Color32::from_rgb(207, 195, 226), t);
         ui.painter().rect_filled(r, 8.0, fill);
-        ui.painter()
-            .rect_stroke(r, 8.0, Stroke::new(1.0_f32, stroke), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            r,
+            8.0,
+            Stroke::new(1.0_f32, stroke),
+            egui::StrokeKind::Inside,
+        );
         let text = if enabled { mix(INK, PURPLE, t) } else { SOFT };
         ui.painter().text(
             r.center(),
@@ -1025,11 +1063,8 @@ fn toggle_switch(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     }
     let ctx = ui.ctx().clone();
     let t = ctx.animate_bool_with_time(response.id, *on, anim(&ctx) * 1.3);
-    ui.painter().rect_filled(
-        rect,
-        11.0,
-        mix(Color32::from_rgb(214, 210, 224), PURPLE, t),
-    );
+    ui.painter()
+        .rect_filled(rect, 11.0, mix(Color32::from_rgb(214, 210, 224), PURPLE, t));
     let knob_x = egui::lerp((rect.left() + 11.0)..=(rect.right() - 11.0), t);
     ui.painter()
         .circle_filled(Pos2::new(knob_x, rect.center().y), 8.0, Color32::WHITE);
@@ -1050,10 +1085,25 @@ fn show_dashboard(ui: &mut egui::Ui, app: &mut AsterApp) {
     );
 
     let metrics = [
-        ("Today's sales", "₹—", "Invoice totals appear here", NavIcon::Sales),
+        (
+            "Today's sales",
+            "₹—",
+            "Invoice totals appear here",
+            NavIcon::Sales,
+        ),
         ("Stock alerts", "—", "Low stock items", NavIcon::Box),
-        ("Receivables", "₹—", "Outstanding balances", NavIcon::Accounts),
-        ("Expiring batches", "—", "Upcoming expiry dates", NavIcon::Stock),
+        (
+            "Receivables",
+            "₹—",
+            "Outstanding balances",
+            NavIcon::Accounts,
+        ),
+        (
+            "Expiring batches",
+            "—",
+            "Upcoming expiry dates",
+            NavIcon::Stock,
+        ),
     ];
 
     ui.scope(|ui| {
@@ -1100,7 +1150,12 @@ fn show_dashboard(ui: &mut egui::Ui, app: &mut AsterApp) {
 
         reveal(ui, "aster_dash_enter", 4, |ui| {
             card(ui, left_w, 22.0, |ui| {
-                ui.label(RichText::new("Recent activity").size(16.5).strong().color(INK));
+                ui.label(
+                    RichText::new("Recent activity")
+                        .size(16.5)
+                        .strong()
+                        .color(INK),
+                );
                 ui.add_space(3.0);
                 ui.label(
                     RichText::new("Invoices and stock updates will appear here.")
@@ -1115,7 +1170,12 @@ fn show_dashboard(ui: &mut egui::Ui, app: &mut AsterApp) {
                     egui::Layout::top_down(Align::Center),
                     |ui| {
                         ui.add_space(52.0);
-                        ui.label(RichText::new("No activity yet").size(15.0).strong().color(MUTED));
+                        ui.label(
+                            RichText::new("No activity yet")
+                                .size(15.0)
+                                .strong()
+                                .color(MUTED),
+                        );
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new("Create an invoice or receive stock to get started.")
@@ -1129,9 +1189,18 @@ fn show_dashboard(ui: &mut egui::Ui, app: &mut AsterApp) {
 
         reveal(ui, "aster_dash_enter", 5, |ui| {
             card(ui, right_w, 22.0, |ui| {
-                ui.label(RichText::new("Quick actions").size(16.5).strong().color(INK));
+                ui.label(
+                    RichText::new("Quick actions")
+                        .size(16.5)
+                        .strong()
+                        .color(INK),
+                );
                 ui.add_space(3.0);
-                ui.label(RichText::new("Jump straight into common work.").size(13.5).color(MUTED));
+                ui.label(
+                    RichText::new("Jump straight into common work.")
+                        .size(13.5)
+                        .color(MUTED),
+                );
                 ui.add_space(14.0);
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for (label, page) in [
@@ -1196,27 +1265,27 @@ fn validate_email(value: &str) -> Option<String> {
 
 fn password_checks(pw: &str) -> [(&'static str, bool); 4] {
     [
-        ("At least 10 characters", pw.chars().count() >= 10),
+        ("Password entered", !pw.is_empty()),
         (
-            "Upper and lower case letters",
+            "Upper and lower case letters (optional)",
             pw.chars().any(|c| c.is_uppercase()) && pw.chars().any(|c| c.is_lowercase()),
         ),
-        ("At least one number", pw.chars().any(|c| c.is_ascii_digit())),
+        (
+            "A number (optional)",
+            pw.chars().any(|c| c.is_ascii_digit()),
+        ),
         (
             "A symbol (recommended)",
-            pw.chars().any(|c| !c.is_alphanumeric() && !c.is_whitespace()),
+            pw.chars()
+                .any(|c| !c.is_alphanumeric() && !c.is_whitespace()),
         ),
     ]
-}
-
-fn password_requirements_met(pw: &str) -> bool {
-    password_checks(pw).iter().take(3).all(|(_, ok)| *ok)
 }
 
 fn password_score(pw: &str) -> usize {
     let checks = password_checks(pw);
     let mut score = checks.iter().filter(|(_, ok)| *ok).count();
-    if pw.chars().count() >= 14 {
+    if pw.chars().count() >= 8 {
         score += 1;
     }
     score.min(5)
@@ -1233,8 +1302,6 @@ fn validate_current_password(value: &str) -> Option<String> {
 fn validate_new_password(value: &str, current: &str) -> Option<String> {
     if value.is_empty() {
         Some("Enter a new password.".into())
-    } else if !password_requirements_met(value) {
-        Some("Password does not meet the requirements below.".into())
     } else if !current.is_empty() && value == current {
         Some("New password must differ from the current one.".into())
     } else {
@@ -1299,7 +1366,11 @@ fn eye_button(ui: &mut egui::Ui, visible: bool) -> egui::Response {
     } else {
         egui::CursorIcon::Default
     });
-    response.on_hover_text(if visible { "Hide passwords" } else { "Show passwords" })
+    response.on_hover_text(if visible {
+        "Hide passwords"
+    } else {
+        "Show passwords"
+    })
 }
 
 /// Labelled text input with required marker, inline validation and animated error.
@@ -1453,7 +1524,11 @@ fn strength_meter(ui: &mut egui::Ui, password: &str) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 6.0), Sense::hover());
     ui.painter()
         .rect_filled(rect, 3.0, Color32::from_rgb(234, 231, 240));
-    let fraction = if password.is_empty() { 0.0 } else { score as f32 / 5.0 };
+    let fraction = if password.is_empty() {
+        0.0
+    } else {
+        score as f32 / 5.0
+    };
     let filled = ctx.animate_value_with_time(
         Id::new("aster_strength_fill"),
         fraction * rect.width(),
@@ -1486,8 +1561,11 @@ fn strength_meter(ui: &mut egui::Ui, password: &str) {
             ui.spacing_mut().item_spacing.x = 8.0;
             let (r, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
             let c = r.center();
-            ui.painter()
-                .circle_stroke(c, 6.5, Stroke::new(1.3_f32, mix(Color32::from_rgb(200, 195, 212), SUCCESS, t)));
+            ui.painter().circle_stroke(
+                c,
+                6.5,
+                Stroke::new(1.3_f32, mix(Color32::from_rgb(200, 195, 212), SUCCESS, t)),
+            );
             if t > 0.0 {
                 ui.painter().circle_filled(c, 6.5 * t, SUCCESS);
                 let check = Stroke::new(1.6_f32, Color32::WHITE.gamma_multiply(t));
@@ -1496,7 +1574,11 @@ fn strength_meter(ui: &mut egui::Ui, password: &str) {
                 ui.painter()
                     .line_segment([c + Vec2::new(-0.6, 2.2), c + Vec2::new(3.0, -2.0)], check);
             }
-            ui.label(RichText::new(*text).size(12.5).color(mix(SOFT, SUCCESS_TEXT, t)));
+            ui.label(
+                RichText::new(*text)
+                    .size(12.5)
+                    .color(mix(SOFT, SUCCESS_TEXT, t)),
+            );
         });
         ui.add_space(1.0);
     }
@@ -1627,8 +1709,8 @@ fn show_user_preferences(ui: &mut egui::Ui, app: &mut AsterApp) {
                                 let save = primary_button(ui, "Save changes", dirty);
                                 let discard = secondary_button(ui, "Discard", dirty);
                                 if dirty_t > 0.0 {
-                                    let (r, _) =
-                                        ui.allocate_exact_size(Vec2::new(8.0, 34.0), Sense::hover());
+                                    let (r, _) = ui
+                                        .allocate_exact_size(Vec2::new(8.0, 34.0), Sense::hover());
                                     ui.painter().circle_filled(
                                         r.center(),
                                         3.5,
@@ -1654,7 +1736,10 @@ fn show_user_preferences(ui: &mut egui::Ui, app: &mut AsterApp) {
                                         ui.data_mut(|d| {
                                             d.insert_temp(
                                                 snapshot_id,
-                                                (app.display_name.clone(), app.profile_email.clone()),
+                                                (
+                                                    app.display_name.clone(),
+                                                    app.profile_email.clone(),
+                                                ),
                                             )
                                         });
                                         set_flag(ui, submitted_id, false);
@@ -1702,7 +1787,7 @@ fn show_user_preferences(ui: &mut egui::Ui, app: &mut AsterApp) {
                                 ui,
                                 Field {
                                     label: "New password",
-                                    hint: "At least 10 characters",
+                                    hint: "Choose any password",
                                     required: true,
                                     password: true,
                                 },
@@ -1731,8 +1816,11 @@ fn show_user_preferences(ui: &mut egui::Ui, app: &mut AsterApp) {
                                 set_flag(ui, submitted_id, true);
                                 let invalid = validate_current_password(&app.current_password)
                                     .is_some()
-                                    || validate_new_password(&app.new_password, &app.current_password)
-                                        .is_some()
+                                    || validate_new_password(
+                                        &app.new_password,
+                                        &app.current_password,
+                                    )
+                                    .is_some()
                                     || validate_confirm_password(
                                         &app.confirm_new_password,
                                         &app.new_password,
@@ -1752,10 +1840,16 @@ fn show_user_preferences(ui: &mut egui::Ui, app: &mut AsterApp) {
                                             app.new_password.clear();
                                             app.confirm_new_password.clear();
                                             set_flag(ui, submitted_id, false);
-                                            for label in
-                                                ["Current password", "New password", "Confirm password"]
-                                            {
-                                                set_flag(ui, Id::new(("aster_touched", label)), false);
+                                            for label in [
+                                                "Current password",
+                                                "New password",
+                                                "Confirm password",
+                                            ] {
+                                                set_flag(
+                                                    ui,
+                                                    Id::new(("aster_touched", label)),
+                                                    false,
+                                                );
                                             }
                                             app.profile_message =
                                                 "Password updated successfully.".into();
@@ -1850,9 +1944,17 @@ fn show_toast(ctx: &egui::Context, app: &mut AsterApp) {
 
     let ok = message_is_ok(&app.profile_message);
     let (fill, border, text) = if ok {
-        (Color32::from_rgb(240, 249, 244), Color32::from_rgb(190, 225, 203), SUCCESS_TEXT)
+        (
+            Color32::from_rgb(240, 249, 244),
+            Color32::from_rgb(190, 225, 203),
+            SUCCESS_TEXT,
+        )
     } else {
-        (Color32::from_rgb(253, 242, 242), Color32::from_rgb(235, 196, 196), DANGER)
+        (
+            Color32::from_rgb(253, 242, 242),
+            Color32::from_rgb(235, 196, 196),
+            DANGER,
+        )
     };
     let slide = (1.0 - eased) * 14.0;
 
