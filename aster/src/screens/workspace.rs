@@ -225,6 +225,9 @@ impl AsterApp {
         if self.workspace_page != WorkspacePage::Dashboard {
             ctx.data_mut(|d| d.remove::<f64>(Id::new("aster_dash_enter")));
         }
+        if self.workspace_page != WorkspacePage::Company {
+            ctx.data_mut(|d| d.remove::<f64>(Id::new("aster_company_enter")));
+        }
 
         // ---------------------------------------------------------------- header
         egui::TopBottomPanel::top("main_header")
@@ -243,22 +246,28 @@ impl AsterApp {
                     ui.add_space(22.0);
 
                     ui.allocate_ui_with_layout(
-                        Vec2::new(150.0, HEADER_HEIGHT),
-                        egui::Layout::top_down(Align::Min),
+                        Vec2::new(210.0, HEADER_HEIGHT),
+                        egui::Layout::left_to_right(Align::Center),
                         |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("ASTER")
-                                    .font(crate::theme::brand_font(24.0))
-                                    .color(PURPLE),
-                            );
-                            ui.label(
-                                RichText::new("Billing")
-                                    .size(9.0)
-                                    .strong()
-                                    .color(SOFT),
-                            );
+                            ui.spacing_mut().item_spacing.x = 10.0;
+                            if let Some(logo) = &self.logo {
+                                ui.add(egui::Image::new(logo).fit_to_exact_size(Vec2::splat(36.0)));
+                            }
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                ui.add_space(8.0);
+                                ui.label(
+                                    RichText::new("ASTER")
+                                        .font(crate::theme::brand_font(24.0))
+                                        .color(PURPLE),
+                                );
+                                ui.label(
+                                    RichText::new("MEDICAL WHOLESALE")
+                                        .size(9.0)
+                                        .strong()
+                                        .color(SOFT),
+                                );
+                            });
                         },
                     );
 
@@ -431,6 +440,12 @@ impl AsterApp {
                                         WorkspacePage::Dashboard => show_dashboard(ui, self),
                                         WorkspacePage::UserPreferences => {
                                             show_user_preferences(ui, self)
+                                        }
+                                        WorkspacePage::Company => {
+                                            super::company_settings::show(ui, self)
+                                        }
+                                        WorkspacePage::Products => {
+                                            super::product_master::show(ui, self)
                                         }
                                         page => show_module_intro(ui, page),
                                     }
@@ -1265,13 +1280,13 @@ fn validate_email(value: &str) -> Option<String> {
 
 fn password_checks(pw: &str) -> [(&'static str, bool); 4] {
     [
-        ("Password entered", !pw.is_empty()),
+        ("At least 10 characters", pw.chars().count() >= 10),
         (
-            "Upper and lower case letters (optional)",
+            "Upper and lower case letters",
             pw.chars().any(|c| c.is_uppercase()) && pw.chars().any(|c| c.is_lowercase()),
         ),
         (
-            "A number (optional)",
+            "At least one number",
             pw.chars().any(|c| c.is_ascii_digit()),
         ),
         (
@@ -1282,10 +1297,14 @@ fn password_checks(pw: &str) -> [(&'static str, bool); 4] {
     ]
 }
 
+fn password_requirements_met(pw: &str) -> bool {
+    password_checks(pw).iter().take(3).all(|(_, ok)| *ok)
+}
+
 fn password_score(pw: &str) -> usize {
     let checks = password_checks(pw);
     let mut score = checks.iter().filter(|(_, ok)| *ok).count();
-    if pw.chars().count() >= 8 {
+    if pw.chars().count() >= 14 {
         score += 1;
     }
     score.min(5)
@@ -1302,6 +1321,8 @@ fn validate_current_password(value: &str) -> Option<String> {
 fn validate_new_password(value: &str, current: &str) -> Option<String> {
     if value.is_empty() {
         Some("Enter a new password.".into())
+    } else if !password_requirements_met(value) {
+        Some("Password does not meet the requirements below.".into())
     } else if !current.is_empty() && value == current {
         Some("New password must differ from the current one.".into())
     } else {
@@ -1787,7 +1808,7 @@ fn show_user_preferences(ui: &mut egui::Ui, app: &mut AsterApp) {
                                 ui,
                                 Field {
                                     label: "New password",
-                                    hint: "Choose any password",
+                                    hint: "At least 10 characters",
                                     required: true,
                                     password: true,
                                 },

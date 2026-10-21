@@ -106,11 +106,7 @@ fn weekday_mon0(date: Ymd) -> usize {
 }
 
 fn fy_of(date: Ymd) -> i32 {
-    if date.1 >= 4 {
-        date.0
-    } else {
-        date.0 - 1
-    }
+    if date.1 >= 4 { date.0 } else { date.0 - 1 }
 }
 
 fn in_fy(date: Ymd, fy: i32) -> bool {
@@ -213,7 +209,11 @@ impl AsterApp {
         ctx.data_mut(|d| {
             d.insert_temp(
                 Id::new("aster_anim_time"),
-                if self.reduced_motion { 0.0_f32 } else { 0.14_f32 },
+                if self.reduced_motion {
+                    0.0_f32
+                } else {
+                    0.14_f32
+                },
             )
         });
 
@@ -308,7 +308,12 @@ impl AsterApp {
                 );
                 ui.painter().rect_filled(
                     left,
-                    CornerRadius { nw: 18, sw: 18, ne: 0, se: 0 },
+                    CornerRadius {
+                        nw: 18,
+                        sw: 18,
+                        ne: 0,
+                        se: 0,
+                    },
                     PANE_FILL,
                 );
                 ui.painter()
@@ -416,7 +421,8 @@ impl AsterApp {
                     Pos2::new(footer.right() - 184.0, footer.top()),
                     Vec2::new(184.0, 40.0),
                 );
-                if primary_button_at(ui, button, "Continue to sign in", selected.is_some()).clicked()
+                if primary_button_at(ui, button, "Continue to sign in", selected.is_some())
+                    .clicked()
                 {
                     go = true;
                 }
@@ -483,7 +489,12 @@ impl AsterApp {
         ui.add_space(18.0);
 
         // ---- financial year list
-        ui.label(RichText::new("FINANCIAL YEAR").size(10.5).strong().color(SOFT));
+        ui.label(
+            RichText::new("FINANCIAL YEAR")
+                .size(10.5)
+                .strong()
+                .color(SOFT),
+        );
         ui.add_space(6.0);
         let mut years = self.financial_years.clone();
         years.sort_unstable_by(|a, b| b.cmp(a));
@@ -496,7 +507,8 @@ impl AsterApp {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 for year in &years {
-                    if fy_row(ui, *year, *year == self.selected_year, *year == current_fy).clicked() {
+                    if fy_row(ui, *year, *year == self.selected_year, *year == current_fy).clicked()
+                    {
                         picked = Some(*year);
                     }
                 }
@@ -531,7 +543,12 @@ impl AsterApp {
 
         // ---- working date
         ui.add_space(12.0);
-        ui.label(RichText::new("WORKING DATE").size(10.5).strong().color(SOFT));
+        ui.label(
+            RichText::new("WORKING DATE")
+                .size(10.5)
+                .strong()
+                .color(SOFT),
+        );
         ui.add_space(6.0);
 
         let fy = self.selected_year;
@@ -624,7 +641,8 @@ impl AsterApp {
         let selected = parse_ymd(&self.date_text).filter(|d| in_fy(*d, fy));
 
         // ---- header: month title + arrows
-        let (header, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 44.0), Sense::hover());
+        let (header, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 44.0), Sense::hover());
         let nav = 34.0;
         let prev_rect = Rect::from_center_size(
             Pos2::new(header.right() - nav * 1.5 - 4.0, header.center().y),
@@ -652,11 +670,8 @@ impl AsterApp {
             } else {
                 "Pick a month"
             });
-        let title_hover = ctx.animate_bool_with_time(
-            title_response.id,
-            title_response.hovered(),
-            anim(&ctx),
-        );
+        let title_hover =
+            ctx.animate_bool_with_time(title_response.id, title_response.hovered(), anim(&ctx));
         let title_galley = ui.painter().layout_no_wrap(
             title,
             FontId::proportional(21.0),
@@ -664,7 +679,10 @@ impl AsterApp {
         );
         let title_width = title_galley.size().x;
         ui.painter().galley(
-            Pos2::new(header.left(), header.center().y - title_galley.size().y / 2.0),
+            Pos2::new(
+                header.left(),
+                header.center().y - title_galley.size().y / 2.0,
+            ),
             title_galley,
             INK,
         );
@@ -724,7 +742,8 @@ impl AsterApp {
             let width = ui.available_width();
 
             if cal.months_mode {
-                let (area, _) = ui.allocate_exact_size(Vec2::new(width, 26.0 + 240.0), Sense::hover());
+                let (area, _) =
+                    ui.allocate_exact_size(Vec2::new(width, 26.0 + 240.0), Sense::hover());
                 let gap = 10.0;
                 let cell_w = (width - gap * 2.0) / 3.0;
                 let cell_h = (area.height() - gap * 3.0) / 4.0;
@@ -769,7 +788,11 @@ impl AsterApp {
                         egui::Align2::CENTER_CENTER,
                         year.to_string(),
                         FontId::proportional(11.0),
-                        if is_view { Color32::from_rgb(222, 212, 240) } else { SOFT },
+                        if is_view {
+                            Color32::from_rgb(222, 212, 240)
+                        } else {
+                            SOFT
+                        },
                     );
                     if has_date && !is_view {
                         ui.painter().circle_filled(
@@ -793,7 +816,8 @@ impl AsterApp {
 
             // weekday header
             let cell_w = (width / 7.0).floor();
-            let (weekday_row, _) = ui.allocate_exact_size(Vec2::new(cell_w * 7.0, 26.0), Sense::hover());
+            let (weekday_row, _) =
+                ui.allocate_exact_size(Vec2::new(cell_w * 7.0, 26.0), Sense::hover());
             for (i, name) in WEEKDAYS.iter().enumerate() {
                 ui.painter().text(
                     Pos2::new(
@@ -803,13 +827,18 @@ impl AsterApp {
                     egui::Align2::CENTER_CENTER,
                     *name,
                     FontId::proportional(11.5),
-                    if i == 6 { Color32::from_rgb(200, 110, 118) } else { SOFT },
+                    if i == 6 {
+                        Color32::from_rgb(200, 110, 118)
+                    } else {
+                        SOFT
+                    },
                 );
             }
 
             // day grid (always six rows so the card never changes height)
             let cell_h = 40.0;
-            let (grid, _) = ui.allocate_exact_size(Vec2::new(cell_w * 7.0, cell_h * 6.0), Sense::hover());
+            let (grid, _) =
+                ui.allocate_exact_size(Vec2::new(cell_w * 7.0, cell_h * 6.0), Sense::hover());
             let first = (cal.view_y, cal.view_m, 1);
             let start = add_days(first, -(weekday_mon0(first) as i64));
             let mut clicked: Option<Ymd> = None;
@@ -829,7 +858,11 @@ impl AsterApp {
                 let response = ui.interact(
                     rect,
                     id,
-                    if enabled { Sense::click() } else { Sense::hover() },
+                    if enabled {
+                        Sense::click()
+                    } else {
+                        Sense::hover()
+                    },
                 );
                 let hover = ctx.animate_bool_with_time(
                     id.with("h"),
@@ -951,9 +984,9 @@ fn fy_row(ui: &mut egui::Ui, year: i32, selected: bool, current: bool) -> egui::
         mix(INK, PURPLE_DEEP, sel),
     );
     if current {
-        let galley = ui
-            .painter()
-            .layout_no_wrap("Current".to_owned(), FontId::proportional(11.0), PURPLE);
+        let galley =
+            ui.painter()
+                .layout_no_wrap("Current".to_owned(), FontId::proportional(11.0), PURPLE);
         let pill = Rect::from_min_size(
             Pos2::new(rect.right() - galley.size().x - 24.0, rect.center().y - 9.0),
             Vec2::new(galley.size().x + 14.0, 18.0),
@@ -976,10 +1009,8 @@ fn link_button(ui: &mut egui::Ui, label: &str, color: Color32) -> egui::Response
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_owned(), FontId::proportional(13.0), color);
-    let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(galley.size().x + 8.0, 26.0),
-        Sense::click(),
-    );
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(galley.size().x + 8.0, 26.0), Sense::click());
     let hover = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
     let text_pos = Pos2::new(rect.left() + 4.0, rect.center().y - galley.size().y / 2.0);
     let underline_y = text_pos.y + galley.size().y + 1.0;
@@ -1015,7 +1046,14 @@ fn small_button(ui: &mut egui::Ui, label: &str, width: f32, height: f32) -> egui
     ui.painter().rect_stroke(
         rect,
         8.0,
-        Stroke::new(1.0_f32, mix(Color32::from_rgb(222, 218, 232), Color32::from_rgb(207, 195, 226), hover)),
+        Stroke::new(
+            1.0_f32,
+            mix(
+                Color32::from_rgb(222, 218, 232),
+                Color32::from_rgb(207, 195, 226),
+                hover,
+            ),
+        ),
         egui::StrokeKind::Inside,
     );
     ui.painter().text(
@@ -1042,7 +1080,11 @@ fn chevron_button(
     let response = ui.interact(
         rect,
         Id::new(("aster_cal_chevron", salt)),
-        if enabled { Sense::click() } else { Sense::hover() },
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
     );
     let hover = ctx.animate_bool_with_time(response.id, enabled && response.hovered(), anim(&ctx));
     ui.painter().rect_filled(
@@ -1082,7 +1124,11 @@ fn primary_button_at(ui: &mut egui::Ui, rect: Rect, label: &str, enabled: bool) 
     let response = ui.interact(
         rect,
         Id::new(("aster_primary_button", label)),
-        if enabled { Sense::click() } else { Sense::hover() },
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
     );
     let hover = ctx.animate_bool_with_time(response.id, enabled && response.hovered(), anim(&ctx));
     let rect = if enabled && response.is_pointer_button_down_on() {

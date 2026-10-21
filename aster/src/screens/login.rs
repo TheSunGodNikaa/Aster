@@ -22,8 +22,8 @@ const DANGER_TINT: Color32 = Color32::from_rgb(253, 240, 240);
 const SUCCESS: Color32 = Color32::from_rgb(45, 146, 94);
 const AMBER: Color32 = Color32::from_rgb(200, 133, 30);
 
-const LOGIN_CARD: Vec2 = Vec2::new(440.0, 456.0);
-const SETUP_CARD: Vec2 = Vec2::new(440.0, 548.0);
+const LOGIN_CARD: Vec2 = Vec2::new(440.0, 492.0);
+const SETUP_CARD: Vec2 = Vec2::new(440.0, 600.0);
 const CARD_PADDING: Vec2 = Vec2::new(36.0, 32.0);
 
 const CREDENTIAL_SERVICE: &str = "ASTER Billing";
@@ -145,6 +145,12 @@ struct LoginUi {
     error_at: f64,
     last_error: String,
     cred_note: String,
+    // create-account flow
+    setup_ready: bool,
+    needs_auth: bool,
+    auth_ok: bool,
+    auth_user: String,
+    auth_pass: String,
 }
 
 fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
@@ -174,7 +180,11 @@ impl AsterApp {
         ctx.data_mut(|d| {
             d.insert_temp(
                 Id::new("aster_anim_time"),
-                if self.reduced_motion { 0.0_f32 } else { 0.14_f32 },
+                if self.reduced_motion {
+                    0.0_f32
+                } else {
+                    0.14_f32
+                },
             )
         });
         let state_id = Id::new("aster_login_ui");
@@ -228,6 +238,7 @@ impl AsterApp {
 
         let mut submit = false;
         let mut back = false;
+        let mut create_account = false;
 
         egui::CentralPanel::default()
             .frame(
@@ -247,7 +258,7 @@ impl AsterApp {
                 );
                 let ui = &mut form;
 
-                brand(ui);
+                brand(ui, self.logo.as_ref());
                 ui.add_space(22.0);
                 ui.label(RichText::new("Welcome back").size(26.0).strong().color(INK));
                 ui.add_space(6.0);
@@ -265,7 +276,11 @@ impl AsterApp {
                 let pass_id = Id::new("aster_login_pass");
                 if !ls.focused_once {
                     ls.focused_once = true;
-                    let target = if self.username.trim().is_empty() { user_id } else { pass_id };
+                    let target = if self.username.trim().is_empty() {
+                        user_id
+                    } else {
+                        pass_id
+                    };
                     ui.memory_mut(|m| m.request_focus(target));
                 }
 
@@ -432,7 +447,10 @@ impl AsterApp {
                                     .color(INK),
                             );
                             let (note, note_color) = if ls.cred_note.is_empty() {
-                                ("Saved securely in Windows Credential Manager".to_owned(), SOFT)
+                                (
+                                    "Saved securely in Windows Credential Manager".to_owned(),
+                                    SOFT,
+                                )
                             } else if ls.cred_note.starts_with("Could not") {
                                 (ls.cred_note.clone(), DANGER)
                             } else {
@@ -470,10 +488,14 @@ impl AsterApp {
 
                 // ---- actions (pinned to the bottom of the card)
                 let actions = Rect::from_min_size(
-                    Pos2::new(card.left() + CARD_PADDING.x, card.bottom() - CARD_PADDING.y - 44.0),
+                    Pos2::new(
+                        card.left() + CARD_PADDING.x,
+                        card.bottom() - CARD_PADDING.y - 44.0 - 34.0,
+                    ),
                     Vec2::new(card.width() - CARD_PADDING.x * 2.0, 44.0),
                 );
-                if back_button_at(ui, Rect::from_min_size(actions.min, Vec2::new(92.0, 44.0))).clicked()
+                if back_button_at(ui, Rect::from_min_size(actions.min, Vec2::new(92.0, 44.0)))
+                    .clicked()
                 {
                     back = true;
                 }
@@ -489,6 +511,13 @@ impl AsterApp {
                 {
                     submit = true;
                 }
+                let link_rect = Rect::from_min_size(
+                    Pos2::new(actions.left(), actions.bottom() + 8.0),
+                    Vec2::new(actions.width(), 26.0),
+                );
+                if create_account_link(ui, link_rect).clicked() {
+                    create_account = true;
+                }
                 screens::show_background_error(ui, self);
             });
 
@@ -501,6 +530,21 @@ impl AsterApp {
             ls.filled_for.clear();
             ctx.data_mut(|d| d.insert_temp(state_id, ls));
             self.set_stage(Stage::SelectYearAndDate, ctx);
+            return;
+        }
+        if create_account {
+            self.username.clear();
+            self.password.clear();
+            self.message.clear();
+            ls.loaded = false;
+            ls.focused_once = false;
+            ls.autofilled = false;
+            ls.filled_for.clear();
+            ctx.data_mut(|d| {
+                d.insert_temp(state_id, ls);
+                d.remove::<LoginUi>(Id::new("aster_setup_ui"));
+            });
+            self.set_stage(Stage::FirstRunSetup, ctx);
             return;
         }
         if submit {
@@ -567,18 +611,32 @@ impl AsterApp {
         }
     }
 
-    // ------------------------------------------------------ administrator setup
+    // ------------------------------------------------------ create account
 
     pub(crate) fn show_first_run_setup(&mut self, ctx: &egui::Context) {
         ctx.data_mut(|d| {
             d.insert_temp(
                 Id::new("aster_anim_time"),
-                if self.reduced_motion { 0.0_f32 } else { 0.14_f32 },
+                if self.reduced_motion {
+                    0.0_f32
+                } else {
+                    0.14_f32
+                },
             )
         });
         let now = ctx.input(|i| i.time);
         let state_id = Id::new("aster_setup_ui");
         let mut ls: LoginUi = ctx.data(|d| d.get_temp(state_id)).unwrap_or_default();
+        if !ls.setup_ready {
+            ls.setup_ready = true;
+            // Once an account exists, a new one needs an administrator's approval.
+            ls.needs_auth = self
+                .db
+                .as_ref()
+                .and_then(|db| db.has_users().ok())
+                .unwrap_or(false);
+        }
+        let step_auth = ls.needs_auth && !ls.auth_ok;
         let mut submit = false;
         let mut back = false;
 
@@ -599,73 +657,127 @@ impl AsterApp {
                 );
                 let ui = &mut form;
 
-                brand(ui);
+                brand(ui, self.logo.as_ref());
                 ui.add_space(22.0);
-                ui.label(
-                    RichText::new("Create administrator")
-                        .size(26.0)
-                        .strong()
-                        .color(INK),
-                );
+                let (title, subtitle) = if step_auth {
+                    (
+                        "Administrator approval",
+                        "An existing administrator must approve a new account.",
+                    )
+                } else if ls.needs_auth {
+                    ("Create account", "Add a new user to this installation.")
+                } else {
+                    (
+                        "Create administrator",
+                        "Set up the first account for this installation.",
+                    )
+                };
+                ui.label(RichText::new(title).size(26.0).strong().color(INK));
                 ui.add_space(6.0);
-                ui.label(
-                    RichText::new("Set up the first account for this installation.")
-                        .size(13.5)
-                        .color(MUTED),
-                );
+                ui.label(RichText::new(subtitle).size(13.5).color(MUTED));
                 ui.add_space(22.0);
 
-                field_label(ui, "User name");
-                let width = ui.available_width();
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.username)
-                        .desired_width(width)
-                        .margin(Margin::symmetric(12, 10))
-                        .hint_text("Administrator name"),
-                );
-                if response.changed() {
-                    self.message.clear();
-                }
-                ui.add_space(14.0);
-
-                field_label(ui, "Password");
-                let pw_response = password_input(
-                    ui,
-                    &mut self.password,
-                    Id::new("aster_setup_pass"),
-                    "At least 10 characters",
-                    &mut ls.show_password,
-                );
-                if pw_response.changed() {
-                    self.message.clear();
-                }
-                strength_bar(ui, &self.password);
-                ui.add_space(14.0);
-
-                field_label(ui, "Confirm password");
-                let show = ls.show_password;
-                let confirm_width = ui.available_width();
-                let confirm = ui.add(
-                    egui::TextEdit::singleline(&mut self.confirm_password)
-                        .password(!show)
-                        .desired_width(confirm_width)
-                        .margin(Margin::symmetric(12, 10))
-                        .hint_text("Repeat password"),
-                );
-                if confirm.changed() {
-                    self.message.clear();
-                }
-                if confirm.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                    submit = true;
-                }
-                if !self.confirm_password.is_empty() {
-                    ui.add_space(4.0);
-                    let matches = self.confirm_password == self.password;
-                    ui.label(
-                        RichText::new(if matches { "Passwords match" } else { "Passwords do not match yet" })
-                            .size(12.0)
-                            .color(if matches { SUCCESS } else { AMBER }),
+                if step_auth {
+                    field_label(ui, "Administrator user name");
+                    let width = ui.available_width();
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut ls.auth_user)
+                            .desired_width(width)
+                            .margin(Margin::symmetric(12, 10))
+                            .hint_text("Existing administrator"),
                     );
+                    if response.changed() {
+                        self.message.clear();
+                    }
+                    ui.add_space(14.0);
+
+                    field_label(ui, "Administrator password");
+                    let pw = password_input(
+                        ui,
+                        &mut ls.auth_pass,
+                        Id::new("aster_auth_pass"),
+                        "Administrator password",
+                        &mut ls.show_password,
+                    );
+                    if pw.changed() {
+                        self.message.clear();
+                    }
+                    if pw.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        submit = true;
+                    }
+                } else {
+                    if ls.needs_auth {
+                        ui.label(
+                            RichText::new(format!("Approved by {}", ls.auth_user))
+                                .size(12.5)
+                                .color(SUCCESS),
+                        );
+                        ui.add_space(10.0);
+                    }
+                    field_label(ui, "User name");
+                    let width = ui.available_width();
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.username)
+                            .desired_width(width)
+                            .margin(Margin::symmetric(12, 10))
+                            .hint_text(if ls.needs_auth {
+                                "New user name"
+                            } else {
+                                "Administrator name"
+                            }),
+                    );
+                    if response.changed() {
+                        self.message.clear();
+                    }
+                    ui.add_space(14.0);
+
+                    field_label(ui, "Password");
+                    let pw_response = password_input(
+                        ui,
+                        &mut self.password,
+                        Id::new("aster_setup_pass"),
+                        "At least 10 characters",
+                        &mut ls.show_password,
+                    );
+                    if pw_response.changed() {
+                        self.message.clear();
+                    }
+                    strength_bar(ui, &self.password);
+                    ui.add_space(14.0);
+
+                    field_label(ui, "Confirm password");
+                    let show = ls.show_password;
+                    let confirm_width = ui.available_width();
+                    let confirm = ui.add(
+                        egui::TextEdit::singleline(&mut self.confirm_password)
+                            .password(!show)
+                            .desired_width(confirm_width)
+                            .margin(Margin::symmetric(12, 10))
+                            .hint_text("Repeat password"),
+                    );
+                    if confirm.changed() {
+                        self.message.clear();
+                    }
+                    if confirm.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        submit = true;
+                    }
+                    if !self.confirm_password.is_empty() {
+                        ui.add_space(4.0);
+                        let matches = self.confirm_password == self.password;
+                        ui.label(
+                            RichText::new(if matches {
+                                "Passwords match"
+                            } else {
+                                "Passwords do not match yet"
+                            })
+                            .size(12.0)
+                            .color(if matches {
+                                SUCCESS
+                            } else {
+                                AMBER
+                            }),
+                        );
+                    }
                 }
 
                 if !self.message.is_empty() && self.message != ls.last_error {
@@ -689,10 +801,14 @@ impl AsterApp {
                 }
 
                 let actions = Rect::from_min_size(
-                    Pos2::new(card.left() + CARD_PADDING.x, card.bottom() - CARD_PADDING.y - 44.0),
+                    Pos2::new(
+                        card.left() + CARD_PADDING.x,
+                        card.bottom() - CARD_PADDING.y - 44.0,
+                    ),
                     Vec2::new(card.width() - CARD_PADDING.x * 2.0, 44.0),
                 );
-                if back_button_at(ui, Rect::from_min_size(actions.min, Vec2::new(92.0, 44.0))).clicked()
+                if back_button_at(ui, Rect::from_min_size(actions.min, Vec2::new(92.0, 44.0)))
+                    .clicked()
                 {
                     back = true;
                 }
@@ -702,7 +818,11 @@ impl AsterApp {
                         Pos2::new(actions.left() + 104.0, actions.top()),
                         actions.max,
                     ),
-                    "Create account",
+                    if step_auth {
+                        "Continue"
+                    } else {
+                        "Create account"
+                    },
                 )
                 .clicked()
                 {
@@ -712,12 +832,47 @@ impl AsterApp {
             });
 
         if back {
+            let had_users = ls.needs_auth;
             self.message.clear();
-            ctx.data_mut(|d| d.insert_temp(state_id, ls));
-            self.set_stage(Stage::SelectYearAndDate, ctx);
+            self.password.clear();
+            self.confirm_password.clear();
+            ctx.data_mut(|d| d.remove::<LoginUi>(state_id));
+            if had_users {
+                self.username.clear();
+                self.set_stage(Stage::Login, ctx);
+            } else {
+                self.set_stage(Stage::SelectYearAndDate, ctx);
+            }
             return;
         }
-        if submit {
+
+        if submit && step_auth {
+            let admin = ls.auth_user.trim().to_owned();
+            if admin.is_empty() {
+                self.message = "Enter the administrator user name.".into();
+            } else if ls.auth_pass.is_empty() {
+                self.message = "Enter the administrator password.".into();
+            } else {
+                let result = self
+                    .db
+                    .as_ref()
+                    .map(|db| db.verify_user(&admin, &ls.auth_pass));
+                match result {
+                    Some(Ok(true)) => {
+                        ls.auth_ok = true;
+                        ls.auth_user = admin;
+                        ls.auth_pass.clear();
+                        ls.show_password = false;
+                        self.message.clear();
+                    }
+                    Some(Ok(false)) => {
+                        self.message = "Administrator user name or password is incorrect.".into();
+                    }
+                    Some(Err(error)) => self.message = error,
+                    None => self.message = "Database is unavailable.".into(),
+                }
+            }
+        } else if submit {
             let username = self.username.trim().to_owned();
             if username.is_empty() {
                 self.message = "Enter a user name.".into();
@@ -733,9 +888,12 @@ impl AsterApp {
                         self.password.clear();
                         self.confirm_password.clear();
                         self.message.clear();
-                        ls.show_password = false;
-                        ctx.data_mut(|d| d.remove::<LoginUi>(Id::new("aster_login_ui")));
+                        ctx.data_mut(|d| {
+                            d.remove::<LoginUi>(state_id);
+                            d.remove::<LoginUi>(Id::new("aster_login_ui"));
+                        });
                         self.set_stage(Stage::Login, ctx);
+                        return;
                     }
                     Err(error) => self.message = error,
                 }
@@ -771,12 +929,53 @@ fn paint_card(ui: &egui::Ui, card: Rect) {
     );
 }
 
-fn brand(ui: &mut egui::Ui) {
+fn brand(ui: &mut egui::Ui, logo: Option<&egui::TextureHandle>) {
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if let Some(logo) = logo {
+            ui.add(egui::Image::new(logo).fit_to_exact_size(Vec2::splat(32.0)));
+        }
         ui.label(RichText::new("ASTER").size(20.0).strong().color(PURPLE));
         ui.label(RichText::new("BILLING").size(10.5).strong().color(SOFT));
     });
+}
+
+/// "Need another account? Create account" line, centred in `rect`.
+fn create_account_link(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
+    let ctx = ui.ctx().clone();
+    let response = ui.interact(rect, Id::new("aster_login_create_account"), Sense::click());
+    let hover = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
+    let lead = ui.painter().layout_no_wrap(
+        "Need another account?  ".to_owned(),
+        FontId::proportional(12.5),
+        MUTED,
+    );
+    let action = ui.painter().layout_no_wrap(
+        "Create account".to_owned(),
+        FontId::proportional(12.5),
+        mix(PURPLE, PURPLE_DEEP, hover),
+    );
+    let total = lead.size().x + action.size().x;
+    let left = rect.center().x - total / 2.0;
+    let y = rect.center().y;
+    let action_left = left + lead.size().x;
+    let action_w = action.size().x;
+    let action_h = action.size().y;
+    ui.painter()
+        .galley(Pos2::new(left, y - lead.size().y / 2.0), lead, MUTED);
+    ui.painter()
+        .galley(Pos2::new(action_left, y - action_h / 2.0), action, PURPLE);
+    if hover > 0.0 {
+        ui.painter().hline(
+            action_left..=(action_left + action_w * hover),
+            y + action_h / 2.0,
+            Stroke::new(1.2_f32, PURPLE),
+        );
+    }
+    if response.hovered() {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response
 }
 
 fn year_pill(ui: &mut egui::Ui, year: i32) {
@@ -843,7 +1042,10 @@ fn check_box(ui: &mut egui::Ui, value: &mut bool) -> egui::Response {
     ui.painter().rect_stroke(
         box_rect,
         6.0,
-        Stroke::new(1.4_f32, mix(Color32::from_rgb(206, 200, 220), PURPLE, t.max(hover))),
+        Stroke::new(
+            1.4_f32,
+            mix(Color32::from_rgb(206, 200, 220), PURPLE, t.max(hover)),
+        ),
         egui::StrokeKind::Inside,
     );
     if t > 0.0 {
@@ -892,7 +1094,11 @@ fn eye_button(ui: &mut egui::Ui, visible: bool) -> egui::Response {
     if response.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    response.on_hover_text(if visible { "Hide password" } else { "Show password" })
+    response.on_hover_text(if visible {
+        "Hide password"
+    } else {
+        "Show password"
+    })
 }
 
 fn password_input(
@@ -939,7 +1145,10 @@ fn strength_bar(ui: &mut egui::Ui, password: &str) {
     if password.chars().any(|c| c.is_ascii_digit()) {
         score += 1;
     }
-    if password.chars().any(|c| !c.is_alphanumeric() && !c.is_whitespace()) {
+    if password
+        .chars()
+        .any(|c| !c.is_alphanumeric() && !c.is_whitespace())
+    {
         score += 1;
     }
     let (label, color) = if password.is_empty() {
@@ -956,9 +1165,16 @@ fn strength_bar(ui: &mut egui::Ui, password: &str) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 5.0), Sense::hover());
     ui.painter()
         .rect_filled(rect, 2.5, Color32::from_rgb(234, 231, 240));
-    let fraction = if password.is_empty() { 0.0 } else { score as f32 / 5.0 };
-    let filled =
-        ctx.animate_value_with_time(Id::new("aster_setup_strength"), fraction * rect.width(), anim(&ctx) * 1.8);
+    let fraction = if password.is_empty() {
+        0.0
+    } else {
+        score as f32 / 5.0
+    };
+    let filled = ctx.animate_value_with_time(
+        Id::new("aster_setup_strength"),
+        fraction * rect.width(),
+        anim(&ctx) * 1.8,
+    );
     if filled > 0.5 {
         ui.painter().rect_filled(
             Rect::from_min_size(rect.min, Vec2::new(filled, rect.height())),
@@ -974,7 +1190,8 @@ fn suggestion_row(ui: &mut egui::Ui, name: &str, query: &str, highlighted: bool)
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), 38.0), Sense::click());
     let ctx = ui.ctx().clone();
-    let hover = ctx.animate_bool_with_time(response.id, response.hovered() || highlighted, anim(&ctx));
+    let hover =
+        ctx.animate_bool_with_time(response.id, response.hovered() || highlighted, anim(&ctx));
     if hover > 0.0 {
         ui.painter()
             .rect_filled(rect, 8.0, PURPLE_TINT.gamma_multiply(hover));
@@ -994,11 +1211,17 @@ fn suggestion_row(ui: &mut egui::Ui, name: &str, query: &str, highlighted: bool)
     let text_pos = Pos2::new(rect.left() + 42.0, rect.center().y);
     let font = FontId::proportional(14.0);
     match (!query.is_empty()).then(|| lower.find(query)).flatten() {
-        Some(start) if name.is_char_boundary(start) && name.is_char_boundary(start + query.len()) => {
+        Some(start)
+            if name.is_char_boundary(start) && name.is_char_boundary(start + query.len()) =>
+        {
             let end = start + query.len();
             let (head, mid, tail) = (&name[..start], &name[start..end], &name[end..]);
             let mut job = egui::text::LayoutJob::default();
-            for (text, color, strong) in [(head, MUTED, false), (mid, PURPLE, true), (tail, MUTED, false)] {
+            for (text, color, strong) in [
+                (head, MUTED, false),
+                (mid, PURPLE, true),
+                (tail, MUTED, false),
+            ] {
                 if text.is_empty() {
                     continue;
                 }
@@ -1008,7 +1231,11 @@ fn suggestion_row(ui: &mut egui::Ui, name: &str, query: &str, highlighted: bool)
                     egui::TextFormat {
                         font_id: font.clone(),
                         color,
-                        underline: if strong { Stroke::new(1.2_f32, PURPLE) } else { Stroke::NONE },
+                        underline: if strong {
+                            Stroke::new(1.2_f32, PURPLE)
+                        } else {
+                            Stroke::NONE
+                        },
                         ..Default::default()
                     },
                 );
@@ -1021,13 +1248,8 @@ fn suggestion_row(ui: &mut egui::Ui, name: &str, query: &str, highlighted: bool)
             );
         }
         _ => {
-            ui.painter().text(
-                text_pos,
-                egui::Align2::LEFT_CENTER,
-                name,
-                font,
-                INK,
-            );
+            ui.painter()
+                .text(text_pos, egui::Align2::LEFT_CENTER, name, font, INK);
         }
     }
     if response.hovered() {
@@ -1038,7 +1260,11 @@ fn suggestion_row(ui: &mut egui::Ui, name: &str, query: &str, highlighted: bool)
 
 fn primary_button_at(ui: &mut egui::Ui, rect: Rect, label: &str) -> egui::Response {
     let ctx = ui.ctx().clone();
-    let response = ui.interact(rect, Id::new(("aster_login_primary", label)), Sense::click());
+    let response = ui.interact(
+        rect,
+        Id::new(("aster_login_primary", label)),
+        Sense::click(),
+    );
     let hover = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
     let rect = if response.is_pointer_button_down_on() {
         rect.shrink(0.75)
@@ -1088,7 +1314,11 @@ fn back_button_at(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
         11.0,
         Stroke::new(
             1.0_f32,
-            mix(Color32::from_rgb(222, 218, 232), Color32::from_rgb(207, 195, 226), hover),
+            mix(
+                Color32::from_rgb(222, 218, 232),
+                Color32::from_rgb(207, 195, 226),
+                hover,
+            ),
         ),
         egui::StrokeKind::Inside,
     );

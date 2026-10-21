@@ -8,6 +8,7 @@ use crate::{
 };
 
 const BACKGROUND_PNG: &[u8] = include_bytes!("../assets/aster-background.png");
+const LOGO_PNG: &[u8] = include_bytes!("../assets/Aster-logo.png");
 
 /// Smallest size the main workspace can be shrunk to before the layout breaks.
 const MAIN_MIN_SIZE: [f32; 2] = [1100.0, 680.0];
@@ -48,6 +49,7 @@ pub(crate) struct AsterApp {
     pub(crate) show_tooltips: bool,
     pub(crate) pending_center: u8,
     pub(crate) layout_ready: bool,
+    pub(crate) logo: Option<egui::TextureHandle>,
 }
 
 impl AsterApp {
@@ -119,6 +121,15 @@ impl AsterApp {
             show_tooltips: true,
             pending_center: 0,
             layout_ready: false,
+            logo: image::load_from_memory(LOGO_PNG).ok().map(|img| {
+                let img = img.to_rgba8();
+                let size = [img.width() as usize, img.height() as usize];
+                cc.egui_ctx.load_texture(
+                    "aster-logo",
+                    egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()),
+                    egui::TextureOptions::LINEAR,
+                )
+            }),
         }
     }
 
