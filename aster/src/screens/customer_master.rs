@@ -218,9 +218,9 @@ fn apply_theme(ui: &mut egui::Ui) {
     let v = &mut style.visuals;
     v.extreme_bg_color = PANEL; // text-edit background
     v.selection.bg_fill = Color32::from_rgb(214, 202, 236);
-    v.selection.stroke = Stroke::new(1.5, PURPLE);
-    v.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER_STRONG);
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(184, 172, 208));
+    v.selection.stroke = Stroke::new(1.5_f32, PURPLE);
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER_STRONG);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(184, 172, 208));
     v.widgets.inactive.corner_radius = 8.0.into();
     v.widgets.hovered.corner_radius = 8.0.into();
     v.widgets.active.corner_radius = 8.0.into();
@@ -353,7 +353,7 @@ fn directory(ui: &mut egui::Ui, s: &mut State, app: &AsterApp) {
         egui::Frame::new()
             .fill(CANVAS)
             .stroke(Stroke::new(
-                1.0,
+                1.0_f32,
                 if focused { PURPLE } else { BORDER_STRONG },
             ))
             .corner_radius(9.0)
@@ -993,9 +993,9 @@ fn field_with(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str, o:
     ui.scope(|ui| {
         if o.invalid {
             let v = ui.visuals_mut();
-            v.widgets.inactive.bg_stroke = Stroke::new(1.0, RED);
-            v.widgets.hovered.bg_stroke = Stroke::new(1.0, RED);
-            v.selection.stroke = Stroke::new(1.5, RED);
+            v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, RED);
+            v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, RED);
+            v.selection.stroke = Stroke::new(1.5_f32, RED);
         }
         ui.add(
             egui::TextEdit::singleline(value)
@@ -1033,15 +1033,15 @@ fn button(ui: &mut egui::Ui, label: &str, kind: Kind) -> egui::Response {
                 PANEL,
                 TINT,
                 INK,
-                Stroke::new(1.0, BORDER_STRONG),
-                Stroke::new(1.0, Color32::from_rgb(184, 172, 208)),
+                Stroke::new(1.0_f32, BORDER_STRONG),
+                Stroke::new(1.0_f32, Color32::from_rgb(184, 172, 208)),
             ),
             Kind::Danger => (
                 PANEL,
                 RED_BG,
                 RED,
-                Stroke::new(1.0, Color32::from_rgb(232, 196, 196)),
-                Stroke::new(1.0, RED),
+                Stroke::new(1.0_f32, Color32::from_rgb(232, 196, 196)),
+                Stroke::new(1.0_f32, RED),
             ),
         };
         // egui buttons paint with `weak_bg_fill`, not `bg_fill`.
@@ -1081,7 +1081,7 @@ fn chip(ui: &mut egui::Ui, text: &str, on: bool) -> egui::Response {
 fn card(margin: f32) -> egui::Frame {
     egui::Frame::new()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, BORDER))
+        .stroke(Stroke::new(1.0_f32, BORDER))
         .corner_radius(12.0)
         .inner_margin(margin)
 }
@@ -1096,7 +1096,7 @@ fn stat_card(
 ) {
     egui::Frame::new()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, BORDER))
+        .stroke(Stroke::new(1.0_f32, BORDER))
         .corner_radius(10.0)
         .inner_margin(Margin::symmetric(14, 11))
         .show(ui, |ui| {
@@ -1173,10 +1173,10 @@ fn initials(name: &str) -> String {
 /// Magnifier drawn with strokes so it doesn't depend on font glyph coverage.
 fn paint_search_icon(p: &egui::Painter, center: egui::Pos2, color: Color32) {
     let c = center + vec2(-1.5, -1.5);
-    p.circle_stroke(c, 5.0, Stroke::new(1.6, color));
+    p.circle_stroke(c, 5.0, Stroke::new(1.6_f32, color));
     p.line_segment(
         [c + Vec2::splat(3.6), c + Vec2::splat(7.4)],
-        Stroke::new(1.8, color),
+        Stroke::new(1.8_f32, color),
     );
 }
 
