@@ -37,3 +37,5 @@ pub(crate) fn show_background_error(ui: &mut egui::Ui, app: &crate::app::AsterAp
         );
     }
 }
+
+pub(crate) mod supplier_master;
