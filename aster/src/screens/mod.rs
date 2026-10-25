@@ -8,6 +8,8 @@ pub(crate) mod company_settings;
 
 pub(crate) mod product_master;
 
+pub(crate) mod customer_master;
+
 pub(crate) fn show_error(ctx: &egui::Context, error: &str) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {

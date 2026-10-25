@@ -447,6 +447,9 @@ impl AsterApp {
                                         WorkspacePage::Products => {
                                             super::product_master::show(ui, self)
                                         }
+                                        WorkspacePage::Customers => {
+                                            super::customer_master::show(ui, self)
+                                        }
                                         page => show_module_intro(ui, page),
                                     }
                                     ui.add_space(24.0);

@@ -55,6 +55,25 @@ pub(crate) struct ProductRecord {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct CustomerRecord {
+    pub id: i64,
+    pub name: String,
+    pub phone: String,
+    pub email: String,
+    pub gstin: String,
+    pub drug_license: String,
+    pub address_line1: String,
+    pub address_line2: String,
+    pub city: String,
+    pub state: String,
+    pub state_code: String,
+    pub pincode: String,
+    pub credit_limit_paise: i64,
+    pub opening_balance_paise: i64,
+    pub active: bool,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct ManufacturerOption {
     pub id: i64,
     pub name: String,
@@ -828,6 +847,120 @@ impl Database {
             )
             .map_err(|e| format!("Update product status: {e}"))?;
 
+        Ok(())
+    }
+    pub(crate) fn customers(&self, year: i32, search: &str) -> Result<Vec<CustomerRecord>, String> {
+        let connection = self.year_connection(year)?;
+        let pattern = format!("%{}%", search.trim());
+        let mut statement = connection
+            .prepare(
+                "SELECT id, name, phone, email, gstin, drug_license, address_line1,
+                    address_line2, city, state, state_code, pincode,
+                    credit_limit_paise, opening_balance_paise, active
+            FROM customers
+            WHERE name LIKE ?1 COLLATE NOCASE OR phone LIKE ?1 COLLATE NOCASE
+                OR email LIKE ?1 COLLATE NOCASE OR gstin LIKE ?1 COLLATE NOCASE
+                OR city LIKE ?1 COLLATE NOCASE OR drug_license LIKE ?1 COLLATE NOCASE
+            ORDER BY name COLLATE NOCASE LIMIT 1000",
+            )
+            .map_err(|e| format!("Prepare customer list: {e}"))?;
+        statement
+            .query_map([pattern], |row| {
+                Ok(CustomerRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    phone: row.get(2)?,
+                    email: row.get(3)?,
+                    gstin: row.get(4)?,
+                    drug_license: row.get(5)?,
+                    address_line1: row.get(6)?,
+                    address_line2: row.get(7)?,
+                    city: row.get(8)?,
+                    state: row.get(9)?,
+                    state_code: row.get(10)?,
+                    pincode: row.get(11)?,
+                    credit_limit_paise: row.get(12)?,
+                    opening_balance_paise: row.get(13)?,
+                    active: row.get::<_, i64>(14)? != 0,
+                })
+            })
+            .map_err(|e| format!("Query customers: {e}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Read customers: {e}"))
+    }
+
+    pub(crate) fn save_customer(
+        &self,
+        year: i32,
+        id: Option<i64>,
+        customer: &CustomerRecord,
+    ) -> Result<(), String> {
+        let name = customer.name.trim();
+        if name.is_empty() {
+            return Err("Customer name is required.".into());
+        }
+        if customer.credit_limit_paise < 0 {
+            return Err("Credit limit cannot be negative.".into());
+        }
+        let connection = self.year_connection(year)?;
+        let result = if let Some(id) = id {
+            connection.execute(
+                "UPDATE customers SET name=?1, phone=?2, email=?3, gstin=?4, drug_license=?5,
+                address_line1=?6, address_line2=?7, city=?8, state=?9, state_code=?10,
+                pincode=?11, credit_limit_paise=?12, opening_balance_paise=?13,
+                active=?14, updated_at=CURRENT_TIMESTAMP WHERE id=?15",
+                params![
+                    name,
+                    customer.phone.trim(),
+                    customer.email.trim(),
+                    customer.gstin.trim().to_uppercase(),
+                    customer.drug_license.trim(),
+                    customer.address_line1.trim(),
+                    customer.address_line2.trim(),
+                    customer.city.trim(),
+                    customer.state.trim(),
+                    customer.state_code.trim(),
+                    customer.pincode.trim(),
+                    customer.credit_limit_paise,
+                    customer.opening_balance_paise,
+                    i64::from(customer.active),
+                    id
+                ],
+            )
+        } else {
+            connection.execute(
+                "INSERT INTO customers (name, phone, email, gstin, drug_license, address_line1,
+                address_line2, city, state, state_code, pincode, credit_limit_paise,
+                opening_balance_paise, active) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                params![name, customer.phone.trim(), customer.email.trim(), customer.gstin.trim().to_uppercase(),
+                    customer.drug_license.trim(), customer.address_line1.trim(), customer.address_line2.trim(),
+                    customer.city.trim(), customer.state.trim(), customer.state_code.trim(), customer.pincode.trim(),
+                    customer.credit_limit_paise, customer.opening_balance_paise, i64::from(customer.active)],
+            )
+        };
+        result.map_err(|e| {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                "A customer with the same name and phone already exists.".to_owned()
+            } else {
+                format!("Save customer: {e}")
+            }
+        })?;
+        Ok(())
+    }
+
+    pub(crate) fn set_customer_active(
+        &self,
+        year: i32,
+        id: i64,
+        active: bool,
+    ) -> Result<(), String> {
+        let connection = self.year_connection(year)?;
+        connection
+            .execute(
+                "UPDATE customers SET active=?1, updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+                params![i64::from(active), id],
+            )
+            .map_err(|e| format!("Update customer status: {e}"))?;
         Ok(())
     }
 }

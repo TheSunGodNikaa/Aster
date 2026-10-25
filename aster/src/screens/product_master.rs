@@ -299,8 +299,8 @@ fn validate_reorder(v: &str) -> Option<String> {
         return Some("Enter 0 or more.".into());
     }
     match v.parse::<f64>() {
-        Ok(n) if n >= 0.0 => None,
-        _ => Some("Reorder level must be 0 or more.".into()),
+        Ok(n) if n.is_finite() && n >= 0.0 => None,
+        _ => Some("Reorder level must be a finite number of 0 or more.".into()),
     }
 }
 
@@ -468,17 +468,27 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     });
     let mut save_requested = save_key && view.open;
     if new_key {
-        form = ProductForm::new(year);
-        view.open = true;
-        view.selected = None;
-        reset_touched(ui);
+        if view.open && form.is_dirty() {
+            app.profile_message =
+                "Save or cancel the current product before creating another.".into();
+        } else {
+            form = ProductForm::new(year);
+            view.open = true;
+            view.selected = None;
+            reset_touched(ui);
+        }
     }
     if find_key {
         ctx.memory_mut(|m| m.request_focus(search_id));
     }
     if esc_key && view.open && ctx.memory(|m| m.focused().is_none()) {
-        view.open = false;
-        view.selected = None;
+        if form.is_dirty() {
+            app.profile_message =
+                "Save or cancel the current product before closing the editor.".into();
+        } else {
+            view.open = false;
+            view.selected = None;
+        }
     }
 
     // ---- page header
@@ -504,10 +514,15 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         });
         ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
             if button(ui, "+  New product", 140.0, true, true).clicked() {
-                form = ProductForm::new(year);
-                view.open = true;
-                view.selected = None;
-                reset_touched(ui);
+                if view.open && form.is_dirty() {
+                    app.profile_message =
+                        "Save or cancel the current product before creating another.".into();
+                } else {
+                    form = ProductForm::new(year);
+                    view.open = true;
+                    view.selected = None;
+                    reset_touched(ui);
+                }
             }
         });
     });
@@ -1191,10 +1206,15 @@ fn table(
         });
 
     if let Some(row) = open_row {
-        *form = ProductForm::from_row(year, row);
-        view.open = true;
-        view.selected = Some(row.id);
-        reset_touched(ui);
+        if form.is_dirty() {
+            app.profile_message =
+                "Save or cancel the current product before switching products.".into();
+        } else {
+            *form = ProductForm::from_row(year, row);
+            view.open = true;
+            view.selected = Some(row.id);
+            reset_touched(ui);
+        }
     }
     if let Some((id, active)) = toggle {
         let result = match app.db.as_ref() {
@@ -1398,8 +1418,13 @@ fn drawer(
     ui.painter()
         .line_segment([cc + Vec2::new(-4.5, 4.5), cc + Vec2::new(4.5, -4.5)], xs);
     if close.on_hover_text("Close  (Esc)").clicked() {
-        view.open = false;
-        view.selected = None;
+        if form.is_dirty() {
+            app.profile_message =
+                "Save or cancel the current product before closing the editor.".into();
+        } else {
+            view.open = false;
+            view.selected = None;
+        }
     }
     ui.painter()
         .hline(card.x_range(), head.bottom(), Stroke::new(1.0_f32, BORDER));
@@ -1635,23 +1660,58 @@ fn save_product(app: &AsterApp, form: &ProductForm, year: i32) -> Result<(), Str
         .as_ref()
         .ok_or_else(|| "Database is not available.".to_owned())?;
 
-    // Duplicate checks against the full product list.
-    let existing = db.products(year, "")?;
+    // Search by the candidate values rather than scanning the first page of all products.
+    // The database list is paged/limited, so an unfiltered scan can miss duplicates.
     let this_id = form.id.unwrap_or(-1);
-    let name = form.name.trim().to_lowercase();
+    let name = form.name.trim();
+    let brand = form.brand_name.trim();
+    let composition = form.composition.trim();
     let barcode = form.barcode.trim();
-    for p in &existing {
-        if p.id == this_id {
-            continue;
+
+    let name_matches = db.products(year, name)?;
+    for p in &name_matches {
+        if p.id != this_id
+            && p.name.trim().eq_ignore_ascii_case(name)
+            && p.brand_name.trim() == brand
+            && p.composition.trim() == composition
+        {
+            return Err(
+                "A product with the same name, brand and composition already exists.".into(),
+            );
         }
-        if p.name.trim().to_lowercase() == name && p.manufacturer_id == form.manufacturer_id {
-            return Err("A product with this name and manufacturer already exists.".into());
-        }
-        if !barcode.is_empty() && p.barcode.trim() == barcode {
+    }
+
+    if !barcode.is_empty() {
+        let barcode_matches = db.products(year, barcode)?;
+        if let Some(p) = barcode_matches
+            .iter()
+            .find(|p| p.id != this_id && p.barcode.trim().eq_ignore_ascii_case(barcode))
+        {
             return Err(format!("Barcode {barcode} is already used by {}.", p.name));
         }
     }
-    db.save_product(year, form.id, &record)
+
+    db.save_product(year, form.id, &record)?;
+
+    // The current database save method does not persist `active` as part of the product
+    // record, so synchronise it explicitly after saving. For new records, locate the
+    // inserted row by the same unique product identity.
+    let saved_id = if let Some(id) = form.id {
+        Some(id)
+    } else {
+        db.products(year, name)?
+            .into_iter()
+            .find(|p| {
+                p.name.trim().eq_ignore_ascii_case(name)
+                    && p.brand_name.trim() == brand
+                    && p.composition.trim() == composition
+            })
+            .map(|p| p.id)
+    };
+    if let Some(id) = saved_id {
+        db.set_product_active(year, id, form.active)?;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ widgets
