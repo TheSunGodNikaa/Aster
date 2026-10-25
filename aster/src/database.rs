@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::date::local_date;
 
 const CURRENT_GLOBAL_SCHEMA: i64 = 2;
-const CURRENT_YEAR_SCHEMA: i64 = 3;
+const CURRENT_YEAR_SCHEMA: i64 = 4;
 const MIN_FINANCIAL_YEAR: i32 = 1900;
 const MAX_FINANCIAL_YEAR: i32 = 9998;
 
@@ -107,6 +107,39 @@ pub(crate) struct SupplierProductLink {
     pub supplier_product_code: String,
     pub preferred: bool,
     pub min_order_qty: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PurchaseLineDraft {
+    pub product_id: i64,
+    pub batch_no: String,
+    pub expiry_date: String,
+    pub quantity_milli: i64,
+    pub free_quantity_milli: i64,
+    pub rate_paise: i64,
+    pub discount_basis_points: i64,
+    pub mrp_paise: i64,
+    pub sale_rate_paise: i64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PurchaseDraft {
+    pub supplier_id: i64,
+    pub supplier_invoice_no: String,
+    pub invoice_date: String,
+    pub notes: String,
+    pub lines: Vec<PurchaseLineDraft>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PurchaseSummary {
+    pub id: i64,
+    pub purchase_no: String,
+    pub supplier_name: String,
+    pub supplier_invoice_no: String,
+    pub invoice_date: String,
+    pub total_paise: i64,
+    pub status: String,
 }
 
 #[derive(Clone, Debug)]
@@ -441,6 +474,93 @@ impl Database {
                 PRAGMA user_version = 3;
                 COMMIT;"
             ).map_err(|error| format!("Apply supplier relationship migration: {error}"))?;
+        }
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| format!("Re-read financial-year schema version: {error}"))?;
+        if version < 4 {
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                CREATE TABLE purchase_counters (
+                    financial_year_start INTEGER PRIMARY KEY,
+                    last_number INTEGER NOT NULL DEFAULT 0 CHECK (last_number >= 0)
+                );
+                CREATE TABLE purchase_documents (
+                    id INTEGER PRIMARY KEY,
+                    purchase_no TEXT NOT NULL UNIQUE,
+                    supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    supplier_name_snap TEXT NOT NULL,
+                    supplier_gstin_snap TEXT NOT NULL DEFAULT '',
+                    supplier_invoice_no TEXT NOT NULL,
+                    invoice_date TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted','reversed')),
+                    taxable_paise INTEGER NOT NULL CHECK (taxable_paise >= 0),
+                    cgst_paise INTEGER NOT NULL CHECK (cgst_paise >= 0),
+                    sgst_paise INTEGER NOT NULL CHECK (sgst_paise >= 0),
+                    igst_paise INTEGER NOT NULL CHECK (igst_paise >= 0),
+                    total_paise INTEGER NOT NULL CHECK (total_paise >= 0),
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE UNIQUE INDEX idx_purchase_supplier_invoice
+                    ON purchase_documents(supplier_id, supplier_invoice_no COLLATE NOCASE)
+                    WHERE supplier_invoice_no <> '';
+                CREATE INDEX idx_purchase_date ON purchase_documents(invoice_date, id);
+                CREATE TABLE batches (
+                    id INTEGER PRIMARY KEY,
+                    product_id INTEGER NOT NULL REFERENCES products(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    batch_no TEXT NOT NULL COLLATE NOCASE,
+                    expiry_date TEXT NOT NULL,
+                    mrp_paise INTEGER NOT NULL CHECK (mrp_paise >= 0),
+                    purchase_rate_paise INTEGER NOT NULL CHECK (purchase_rate_paise >= 0),
+                    sale_rate_paise INTEGER NOT NULL CHECK (sale_rate_paise >= 0),
+                    qty_on_hand_milli INTEGER NOT NULL DEFAULT 0 CHECK (qty_on_hand_milli >= 0),
+                    free_qty_on_hand_milli INTEGER NOT NULL DEFAULT 0 CHECK (free_qty_on_hand_milli >= 0),
+                    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(product_id, batch_no, expiry_date)
+                );
+                CREATE INDEX idx_batches_product_expiry ON batches(product_id, expiry_date, batch_no);
+                CREATE TABLE purchase_items (
+                    id INTEGER PRIMARY KEY,
+                    purchase_id INTEGER NOT NULL REFERENCES purchase_documents(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    line_no INTEGER NOT NULL,
+                    product_id INTEGER NOT NULL REFERENCES products(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    batch_id INTEGER NOT NULL REFERENCES batches(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    product_name_snap TEXT NOT NULL,
+                    hsn_snap TEXT NOT NULL DEFAULT '',
+                    gst_basis_points INTEGER NOT NULL CHECK (gst_basis_points BETWEEN 0 AND 10000),
+                    batch_no_snap TEXT NOT NULL,
+                    expiry_date_snap TEXT NOT NULL,
+                    quantity_milli INTEGER NOT NULL CHECK (quantity_milli > 0),
+                    free_quantity_milli INTEGER NOT NULL DEFAULT 0 CHECK (free_quantity_milli >= 0),
+                    rate_paise INTEGER NOT NULL CHECK (rate_paise >= 0),
+                    discount_basis_points INTEGER NOT NULL DEFAULT 0 CHECK (discount_basis_points BETWEEN 0 AND 10000),
+                    taxable_paise INTEGER NOT NULL CHECK (taxable_paise >= 0),
+                    cgst_paise INTEGER NOT NULL CHECK (cgst_paise >= 0),
+                    sgst_paise INTEGER NOT NULL CHECK (sgst_paise >= 0),
+                    igst_paise INTEGER NOT NULL CHECK (igst_paise >= 0),
+                    mrp_paise INTEGER NOT NULL CHECK (mrp_paise >= 0),
+                    sale_rate_paise INTEGER NOT NULL CHECK (sale_rate_paise >= 0),
+                    UNIQUE(purchase_id, line_no)
+                );
+                CREATE INDEX idx_purchase_items_product ON purchase_items(product_id, purchase_id);
+                CREATE TABLE stock_movements (
+                    id INTEGER PRIMARY KEY,
+                    batch_id INTEGER NOT NULL REFERENCES batches(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    movement_type TEXT NOT NULL CHECK (movement_type IN ('purchase','purchase_reversal','sale','sale_return','adjustment')),
+                    reference_type TEXT NOT NULL,
+                    reference_id INTEGER NOT NULL,
+                    quantity_change_milli INTEGER NOT NULL,
+                    free_quantity_change_milli INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX idx_stock_movements_batch ON stock_movements(batch_id, id);
+                INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
+                PRAGMA user_version = 4;
+                COMMIT;"
+            ).map_err(|error| format!("Apply purchase and inventory migration: {error}"))?;
         }
 
         let stored_year: Option<i32> = connection
@@ -793,19 +913,12 @@ impl Database {
 
     pub(crate) fn create_manufacturer(&self, year: i32, name: &str) -> Result<i64, String> {
         let name = name.trim();
-        if name.is_empty() {
-            return Err("Manufacturer name is required.".into());
-        }
+        if name.is_empty() { return Err("Manufacturer name is required.".into()); }
         let connection = self.year_connection(year)?;
-        connection
-            .execute("INSERT INTO manufacturers(name) VALUES(?1)", [name])
-            .map_err(|e| {
-                if e.to_string().contains("UNIQUE constraint failed") {
-                    "A manufacturer with this name already exists.".to_owned()
-                } else {
-                    format!("Create manufacturer: {e}")
-                }
-            })?;
+        connection.execute("INSERT INTO manufacturers(name) VALUES(?1)", [name])
+            .map_err(|e| if e.to_string().contains("UNIQUE constraint failed") {
+                "A manufacturer with this name already exists.".to_owned()
+            } else { format!("Create manufacturer: {e}") })?;
         Ok(connection.last_insert_rowid())
     }
 
@@ -1032,165 +1145,167 @@ impl Database {
     pub(crate) fn suppliers(&self, year: i32, search: &str) -> Result<Vec<SupplierRecord>, String> {
         let connection = self.year_connection(year)?;
         let pattern = format!("%{}%", search.trim());
-        let mut statement = connection
-            .prepare(
-                "SELECT id,name,trade_name,contact_person,phone,email,gstin,drug_license,
+        let mut statement = connection.prepare(
+            "SELECT id,name,trade_name,contact_person,phone,email,gstin,drug_license,
              address_line1,address_line2,city,state,state_code,pincode,payment_terms_days,
              credit_limit_paise,opening_balance_paise,active FROM suppliers
              WHERE name LIKE ?1 COLLATE NOCASE OR trade_name LIKE ?1 COLLATE NOCASE
              OR contact_person LIKE ?1 COLLATE NOCASE OR phone LIKE ?1 COLLATE NOCASE
              OR email LIKE ?1 COLLATE NOCASE OR gstin LIKE ?1 COLLATE NOCASE
              OR city LIKE ?1 COLLATE NOCASE OR drug_license LIKE ?1 COLLATE NOCASE
-             ORDER BY name COLLATE NOCASE LIMIT 1000",
-            )
-            .map_err(|e| format!("Prepare supplier list: {e}"))?;
-        statement
-            .query_map([pattern], |r| {
-                Ok(SupplierRecord {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    trade_name: r.get(2)?,
-                    contact_person: r.get(3)?,
-                    phone: r.get(4)?,
-                    email: r.get(5)?,
-                    gstin: r.get(6)?,
-                    drug_license: r.get(7)?,
-                    address_line1: r.get(8)?,
-                    address_line2: r.get(9)?,
-                    city: r.get(10)?,
-                    state: r.get(11)?,
-                    state_code: r.get(12)?,
-                    pincode: r.get(13)?,
-                    payment_terms_days: r.get(14)?,
-                    credit_limit_paise: r.get(15)?,
-                    opening_balance_paise: r.get(16)?,
-                    active: r.get::<_, i64>(17)? != 0,
-                })
-            })
-            .map_err(|e| format!("Query suppliers: {e}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Read suppliers: {e}"))
+             ORDER BY name COLLATE NOCASE LIMIT 1000"
+        ).map_err(|e| format!("Prepare supplier list: {e}"))?;
+        statement.query_map([pattern], |r| Ok(SupplierRecord {
+            id:r.get(0)?, name:r.get(1)?, trade_name:r.get(2)?, contact_person:r.get(3)?,
+            phone:r.get(4)?, email:r.get(5)?, gstin:r.get(6)?, drug_license:r.get(7)?,
+            address_line1:r.get(8)?, address_line2:r.get(9)?, city:r.get(10)?, state:r.get(11)?,
+            state_code:r.get(12)?, pincode:r.get(13)?, payment_terms_days:r.get(14)?,
+            credit_limit_paise:r.get(15)?, opening_balance_paise:r.get(16)?, active:r.get::<_,i64>(17)? != 0,
+        })).map_err(|e| format!("Query suppliers: {e}"))?
+          .collect::<Result<Vec<_>,_>>().map_err(|e| format!("Read suppliers: {e}"))
     }
 
-    pub(crate) fn save_supplier(
-        &self,
-        year: i32,
-        id: Option<i64>,
-        supplier: &SupplierRecord,
-        manufacturer_ids: &[i64],
-        product_links: &[SupplierProductLink],
-    ) -> Result<i64, String> {
-        let name = supplier.name.trim();
-        if name.is_empty() {
-            return Err("Supplier legal name is required.".into());
-        }
-        if !(0..=3650).contains(&supplier.payment_terms_days) {
-            return Err("Payment terms must be between 0 and 3650 days.".into());
-        }
-        if supplier.credit_limit_paise < 0 {
-            return Err("Credit limit cannot be negative.".into());
-        }
-        let mut connection = self.year_connection(year)?;
-        let tx = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|e| format!("Start supplier save: {e}"))?;
-        let result = if let Some(id) = id {
+    pub(crate) fn save_supplier(&self, year:i32, id:Option<i64>, supplier:&SupplierRecord, manufacturer_ids:&[i64], product_links:&[SupplierProductLink]) -> Result<i64,String> {
+        let name=supplier.name.trim();
+        if name.is_empty() { return Err("Supplier legal name is required.".into()); }
+        if !(0..=3650).contains(&supplier.payment_terms_days) { return Err("Payment terms must be between 0 and 3650 days.".into()); }
+        if supplier.credit_limit_paise < 0 { return Err("Credit limit cannot be negative.".into()); }
+        let mut connection=self.year_connection(year)?;
+        let tx=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|format!("Start supplier save: {e}"))?;
+        let result=if let Some(id)=id {
             tx.execute("UPDATE suppliers SET name=?1,trade_name=?2,contact_person=?3,phone=?4,email=?5,gstin=?6,drug_license=?7,address_line1=?8,address_line2=?9,city=?10,state=?11,state_code=?12,pincode=?13,payment_terms_days=?14,credit_limit_paise=?15,opening_balance_paise=?16,active=?17,updated_at=CURRENT_TIMESTAMP WHERE id=?18",
                 params![name,supplier.trade_name.trim(),supplier.contact_person.trim(),supplier.phone.trim(),supplier.email.trim(),supplier.gstin.trim().to_uppercase(),supplier.drug_license.trim(),supplier.address_line1.trim(),supplier.address_line2.trim(),supplier.city.trim(),supplier.state.trim(),supplier.state_code.trim(),supplier.pincode.trim(),supplier.payment_terms_days,supplier.credit_limit_paise,supplier.opening_balance_paise,i64::from(supplier.active),id]).map(|_|id)
         } else {
             tx.execute("INSERT INTO suppliers(name,trade_name,contact_person,phone,email,gstin,drug_license,address_line1,address_line2,city,state,state_code,pincode,payment_terms_days,credit_limit_paise,opening_balance_paise,active) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                 params![name,supplier.trade_name.trim(),supplier.contact_person.trim(),supplier.phone.trim(),supplier.email.trim(),supplier.gstin.trim().to_uppercase(),supplier.drug_license.trim(),supplier.address_line1.trim(),supplier.address_line2.trim(),supplier.city.trim(),supplier.state.trim(),supplier.state_code.trim(),supplier.pincode.trim(),supplier.payment_terms_days,supplier.credit_limit_paise,supplier.opening_balance_paise,i64::from(supplier.active)]).map(|_|tx.last_insert_rowid())
         };
-        let saved_id = result.map_err(|e| {
-            if e.to_string().contains("UNIQUE constraint failed") {
-                "A supplier with the same name and phone already exists.".to_owned()
-            } else {
-                format!("Save supplier: {e}")
-            }
-        })?;
-        tx.execute(
-            "DELETE FROM supplier_manufacturers WHERE supplier_id=?1",
-            [saved_id],
-        )
-        .map_err(|e| format!("Replace supplier manufacturer links: {e}"))?;
-        for manufacturer_id in manufacturer_ids {
-            tx.execute("INSERT OR IGNORE INTO supplier_manufacturers(supplier_id,manufacturer_id) VALUES(?1,?2)",params![saved_id,manufacturer_id]).map_err(|e|format!("Link supplier manufacturer: {e}"))?;
-        }
-        tx.execute(
-            "DELETE FROM supplier_products WHERE supplier_id=?1",
-            [saved_id],
-        )
-        .map_err(|e| format!("Replace supplier product links: {e}"))?;
+        let saved_id=result.map_err(|e|if e.to_string().contains("UNIQUE constraint failed"){"A supplier with the same name and phone already exists.".to_owned()}else{format!("Save supplier: {e}")})?;
+        tx.execute("DELETE FROM supplier_manufacturers WHERE supplier_id=?1",[saved_id]).map_err(|e|format!("Replace supplier manufacturer links: {e}"))?;
+        for manufacturer_id in manufacturer_ids { tx.execute("INSERT OR IGNORE INTO supplier_manufacturers(supplier_id,manufacturer_id) VALUES(?1,?2)",params![saved_id,manufacturer_id]).map_err(|e|format!("Link supplier manufacturer: {e}"))?; }
+        tx.execute("DELETE FROM supplier_products WHERE supplier_id=?1",[saved_id]).map_err(|e|format!("Replace supplier product links: {e}"))?;
         for link in product_links {
-            if !link.min_order_qty.is_finite() || link.min_order_qty < 0.0 {
-                return Err("Minimum order quantity must be a valid non-negative number.".into());
-            }
-            let manufacturer_id: Option<i64> = tx
-                .query_row(
-                    "SELECT manufacturer_id FROM products WHERE id=?1",
-                    [link.product_id],
-                    |r| r.get(0),
-                )
-                .map_err(|e| format!("Read product manufacturer: {e}"))?;
-            if let Some(manufacturer_id) = manufacturer_id {
-                tx.execute("INSERT OR IGNORE INTO supplier_manufacturers(supplier_id,manufacturer_id) VALUES(?1,?2)",params![saved_id,manufacturer_id]).map_err(|e|format!("Link product manufacturer to supplier: {e}"))?;
-            }
+            if !link.min_order_qty.is_finite() || link.min_order_qty<0.0 { return Err("Minimum order quantity must be a valid non-negative number.".into()); }
+            let manufacturer_id: Option<i64> = tx.query_row("SELECT manufacturer_id FROM products WHERE id=?1",[link.product_id],|r|r.get(0)).map_err(|e|format!("Read product manufacturer: {e}"))?;
+            if let Some(manufacturer_id)=manufacturer_id { tx.execute("INSERT OR IGNORE INTO supplier_manufacturers(supplier_id,manufacturer_id) VALUES(?1,?2)",params![saved_id,manufacturer_id]).map_err(|e|format!("Link product manufacturer to supplier: {e}"))?; }
             tx.execute("INSERT INTO supplier_products(supplier_id,product_id,supplier_product_code,preferred,min_order_qty) VALUES(?1,?2,?3,?4,?5)",params![saved_id,link.product_id,link.supplier_product_code.trim(),i64::from(link.preferred),link.min_order_qty]).map_err(|e|format!("Link supplier product: {e}"))?;
         }
-        tx.commit()
-            .map_err(|e| format!("Finish supplier and association save: {e}"))?;
+        tx.commit().map_err(|e|format!("Finish supplier and association save: {e}"))?;
         Ok(saved_id)
     }
 
-    pub(crate) fn set_supplier_active(
-        &self,
-        year: i32,
-        id: i64,
-        active: bool,
-    ) -> Result<(), String> {
-        let connection = self.year_connection(year)?;
-        connection
-            .execute(
-                "UPDATE suppliers SET active=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",
-                params![i64::from(active), id],
-            )
-            .map_err(|e| format!("Update supplier status: {e}"))?;
-        Ok(())
+    pub(crate) fn set_supplier_active(&self,year:i32,id:i64,active:bool)->Result<(),String>{
+        let connection=self.year_connection(year)?;
+        connection.execute("UPDATE suppliers SET active=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",params![i64::from(active),id]).map_err(|e|format!("Update supplier status: {e}"))?; Ok(())
     }
 
-    pub(crate) fn supplier_manufacturer_ids(
-        &self,
-        year: i32,
-        supplier_id: i64,
-    ) -> Result<Vec<i64>, String> {
-        let connection = self.year_connection(year)?;
+    pub(crate) fn supplier_manufacturer_ids(&self,year:i32,supplier_id:i64)->Result<Vec<i64>,String>{
+        let connection=self.year_connection(year)?;
         let mut statement=connection.prepare("SELECT manufacturer_id FROM supplier_manufacturers WHERE supplier_id=?1 ORDER BY manufacturer_id").map_err(|e|format!("Prepare supplier manufacturers: {e}"))?;
-        statement
-            .query_map([supplier_id], |r| r.get(0))
-            .map_err(|e| format!("Query supplier manufacturers: {e}"))?
-            .collect::<Result<Vec<i64>, _>>()
-            .map_err(|e| format!("Read supplier manufacturers: {e}"))
+        statement.query_map([supplier_id],|r|r.get(0)).map_err(|e|format!("Query supplier manufacturers: {e}"))?.collect::<Result<Vec<i64>,_>>().map_err(|e|format!("Read supplier manufacturers: {e}"))
     }
 
-    pub(crate) fn supplier_product_links(
-        &self,
-        year: i32,
-        supplier_id: i64,
-    ) -> Result<Vec<SupplierProductLink>, String> {
-        let connection = self.year_connection(year)?;
+    pub(crate) fn supplier_product_links(&self,year:i32,supplier_id:i64)->Result<Vec<SupplierProductLink>,String>{
+        let connection=self.year_connection(year)?;
         let mut statement=connection.prepare("SELECT product_id,supplier_product_code,preferred,min_order_qty FROM supplier_products WHERE supplier_id=?1 ORDER BY product_id").map_err(|e|format!("Prepare supplier products: {e}"))?;
-        statement
-            .query_map([supplier_id], |r| {
-                Ok(SupplierProductLink {
-                    product_id: r.get(0)?,
-                    supplier_product_code: r.get(1)?,
-                    preferred: r.get::<_, i64>(2)? != 0,
-                    min_order_qty: r.get(3)?,
-                })
-            })
-            .map_err(|e| format!("Query supplier products: {e}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Read supplier products: {e}"))
+        statement.query_map([supplier_id],|r|Ok(SupplierProductLink{product_id:r.get(0)?,supplier_product_code:r.get(1)?,preferred:r.get::<_,i64>(2)?!=0,min_order_qty:r.get(3)?})).map_err(|e|format!("Query supplier products: {e}"))?.collect::<Result<Vec<_>,_>>().map_err(|e|format!("Read supplier products: {e}"))
+    }
+
+    pub(crate) fn recent_purchases(&self, year: i32, limit: i64) -> Result<Vec<PurchaseSummary>, String> {
+        let connection = self.year_connection(year)?;
+        let mut statement = connection.prepare(
+            "SELECT id, purchase_no, supplier_name_snap, supplier_invoice_no, invoice_date, total_paise, status
+             FROM purchase_documents ORDER BY id DESC LIMIT ?1"
+        ).map_err(|e| format!("Prepare recent purchases: {e}"))?;
+        statement.query_map([limit.clamp(1, 100)], |r| Ok(PurchaseSummary {
+            id:r.get(0)?, purchase_no:r.get(1)?, supplier_name:r.get(2)?, supplier_invoice_no:r.get(3)?,
+            invoice_date:r.get(4)?, total_paise:r.get(5)?, status:r.get(6)?,
+        })).map_err(|e| format!("Query recent purchases: {e}"))?
+          .collect::<Result<Vec<_>,_>>().map_err(|e| format!("Read recent purchases: {e}"))
+    }
+
+    pub(crate) fn post_purchase(&self, year: i32, draft: &PurchaseDraft) -> Result<String, String> {
+        if draft.supplier_id <= 0 { return Err("Select a supplier.".into()); }
+        if draft.supplier_invoice_no.trim().is_empty() { return Err("Supplier invoice number is required.".into()); }
+        if !valid_iso_date(&draft.invoice_date) { return Err("Invoice date must be a valid YYYY-MM-DD date.".into()); }
+        if draft.lines.is_empty() { return Err("Add at least one product line.".into()); }
+        let mut connection = self.year_connection(year)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| format!("Start purchase transaction: {e}"))?;
+        let supplier: (String, String, String, i64) = tx.query_row(
+            "SELECT name, gstin, state_code, active FROM suppliers WHERE id=?1", [draft.supplier_id],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+        ).map_err(|e| format!("Find supplier: {e}"))?;
+        if supplier.3 == 0 { return Err("This supplier is inactive. Reactivate it before posting a purchase.".into()); }
+        let company_state: String = tx.query_row("SELECT state_code FROM company_settings WHERE id=1", [], |r| r.get(0))
+            .optional().map_err(|e| format!("Read company GST state: {e}"))?.unwrap_or_default();
+        let local_supply = !company_state.trim().is_empty() && company_state.trim() == supplier.2.trim();
+        let year_counter: i64 = tx.query_row(
+            "SELECT last_number FROM purchase_counters WHERE financial_year_start=?1", [year], |r| r.get(0)
+        ).optional().map_err(|e| format!("Read purchase counter: {e}"))?.unwrap_or(0);
+        let next = year_counter.checked_add(1).ok_or("Purchase number counter overflowed.")?;
+        let purchase_no = format!("PUR-{year}-{:06}", next);
+        let mut computed = Vec::with_capacity(draft.lines.len());
+        let mut total_taxable:i64=0; let mut total_cgst:i64=0; let mut total_sgst:i64=0; let mut total_igst:i64=0;
+        for (index,line) in draft.lines.iter().enumerate() {
+            if line.product_id <= 0 { return Err(format!("Line {}: select a product.", index+1)); }
+            if line.batch_no.trim().is_empty() { return Err(format!("Line {}: batch number is required.", index+1)); }
+            if !valid_iso_date(&line.expiry_date) { return Err(format!("Line {}: enter a valid expiry date (YYYY-MM-DD).", index+1)); }
+            if line.expiry_date < draft.invoice_date { return Err(format!("Line {}: batch expiry cannot be before the invoice date.", index+1)); }
+            if line.quantity_milli <= 0 || line.free_quantity_milli < 0 { return Err(format!("Line {}: quantity must be positive and free quantity cannot be negative.", index+1)); }
+            if line.rate_paise < 0 || line.mrp_paise < 0 || line.sale_rate_paise < 0 { return Err(format!("Line {}: rates cannot be negative.", index+1)); }
+            if !(0..=10000).contains(&line.discount_basis_points) { return Err(format!("Line {}: discount must be from 0% to 100%.", index+1)); }
+            let product: (String,String,f64,i64,i64) = tx.query_row(
+                "SELECT name, hsn_code, gst_percent, active, id FROM products WHERE id=?1", [line.product_id],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))
+            ).map_err(|e| format!("Line {}: product no longer exists.",index+1))?;
+            if product.3 == 0 { return Err(format!("Line {}: '{}' is inactive.",index+1,product.0)); }
+            if !product.2.is_finite() || !(0.0..=100.0).contains(&product.2) { return Err(format!("Line {}: product GST rate is invalid.",index+1)); }
+            let gst_bp = (product.2 * 100.0).round() as i64;
+            let gross = (line.quantity_milli as i128).checked_mul(line.rate_paise as i128).ok_or("Purchase amount overflow.")? / 1000;
+            let taxable: i64 = ((gross * (10000-line.discount_basis_points) as i128 + 5000) / 10000).try_into().map_err(|_| "Purchase taxable amount overflow.")?;
+            let tax = ((taxable as i128 * gst_bp as i128 + 5000) / 10000) as i64;
+            let (cgst,sgst,igst) = if local_supply { let cgst=tax/2; (cgst,tax-cgst,0) } else { (0,0,tax) };
+            total_taxable=total_taxable.checked_add(taxable).ok_or("Purchase total overflow.")?;
+            total_cgst=total_cgst.checked_add(cgst).ok_or("Purchase tax total overflow.")?;
+            total_sgst=total_sgst.checked_add(sgst).ok_or("Purchase tax total overflow.")?;
+            total_igst=total_igst.checked_add(igst).ok_or("Purchase tax total overflow.")?;
+            computed.push((line,product.0,product.1,gst_bp,taxable,cgst,sgst,igst));
+        }
+        let total = total_taxable.checked_add(total_cgst).and_then(|v|v.checked_add(total_sgst)).and_then(|v|v.checked_add(total_igst)).ok_or("Purchase grand total overflow.")?;
+        tx.execute("INSERT INTO purchase_counters(financial_year_start,last_number) VALUES(?1,?2) ON CONFLICT(financial_year_start) DO UPDATE SET last_number=excluded.last_number", params![year,next])
+            .map_err(|e| format!("Reserve purchase number: {e}"))?;
+        tx.execute(
+            "INSERT INTO purchase_documents(purchase_no,supplier_id,supplier_name_snap,supplier_gstin_snap,supplier_invoice_no,invoice_date,taxable_paise,cgst_paise,sgst_paise,igst_paise,total_paise,notes)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            params![purchase_no,draft.supplier_id,supplier.0,supplier.1,draft.supplier_invoice_no.trim(),draft.invoice_date,total_taxable,total_cgst,total_sgst,total_igst,total,draft.notes.trim()]
+        ).map_err(|e| if e.to_string().contains("UNIQUE constraint failed") { "This supplier invoice number has already been recorded.".to_owned() } else { format!("Create purchase: {e}") })?;
+        let purchase_id=tx.last_insert_rowid();
+        for (index,(line,product_name,hsn,gst_bp,taxable,cgst,sgst,igst)) in computed.iter().enumerate() {
+            let batch_id: i64 = match tx.query_row(
+                "SELECT id FROM batches WHERE product_id=?1 AND batch_no=?2 COLLATE NOCASE AND expiry_date=?3",
+                params![line.product_id,line.batch_no.trim(),line.expiry_date], |r|r.get(0)
+            ).optional().map_err(|e|format!("Find batch: {e}"))? {
+                Some(id) => {
+                    tx.execute("UPDATE batches SET mrp_paise=?1,purchase_rate_paise=?2,sale_rate_paise=?3 WHERE id=?4",
+                        params![line.mrp_paise,line.rate_paise,line.sale_rate_paise,id]).map_err(|e|format!("Update batch prices: {e}"))?; id
+                },
+                None => {
+                    tx.execute("INSERT INTO batches(product_id,batch_no,expiry_date,mrp_paise,purchase_rate_paise,sale_rate_paise) VALUES(?1,?2,?3,?4,?5,?6)",
+                        params![line.product_id,line.batch_no.trim(),line.expiry_date,line.mrp_paise,line.rate_paise,line.sale_rate_paise]).map_err(|e|format!("Create batch: {e}"))?;
+                    tx.last_insert_rowid()
+                }
+            };
+            tx.execute("INSERT INTO purchase_items(purchase_id,line_no,product_id,batch_id,product_name_snap,hsn_snap,gst_basis_points,batch_no_snap,expiry_date_snap,quantity_milli,free_quantity_milli,rate_paise,discount_basis_points,taxable_paise,cgst_paise,sgst_paise,igst_paise,mrp_paise,sale_rate_paise)
+                VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+                params![purchase_id,index as i64+1,line.product_id,batch_id,product_name,hsn,gst_bp,line.batch_no.trim(),line.expiry_date,line.quantity_milli,line.free_quantity_milli,line.rate_paise,line.discount_basis_points,taxable,cgst,sgst,igst,line.mrp_paise,line.sale_rate_paise])
+                .map_err(|e|format!("Save purchase line {}: {e}",index+1))?;
+            tx.execute("UPDATE batches SET qty_on_hand_milli=qty_on_hand_milli+?1,free_qty_on_hand_milli=free_qty_on_hand_milli+?2 WHERE id=?3",
+                params![line.quantity_milli,line.free_quantity_milli,batch_id]).map_err(|e|format!("Apply stock for line {}: {e}",index+1))?;
+            tx.execute("INSERT INTO stock_movements(batch_id,movement_type,reference_type,reference_id,quantity_change_milli,free_quantity_change_milli) VALUES(?1,'purchase','purchase',?2,?3,?4)",
+                params![batch_id,purchase_id,line.quantity_milli,line.free_quantity_milli]).map_err(|e|format!("Record stock movement for line {}: {e}",index+1))?;
+        }
+        tx.commit().map_err(|e|format!("Commit purchase and stock: {e}"))?;
+        Ok(purchase_no)
     }
 
     pub(crate) fn set_customer_active(
@@ -1208,6 +1323,16 @@ impl Database {
             .map_err(|e| format!("Update customer status: {e}"))?;
         Ok(())
     }
+}
+
+fn valid_iso_date(value: &str) -> bool {
+    let parts: Vec<_> = value.split('-').collect();
+    if parts.len() != 3 || parts[0].len()!=4 || parts[1].len()!=2 || parts[2].len()!=2 { return false; }
+    let (Ok(y),Ok(m),Ok(d)) = (parts[0].parse::<i32>(),parts[1].parse::<u32>(),parts[2].parse::<u32>()) else { return false; };
+    if !(1..=12).contains(&m) || d==0 { return false; }
+    let leap = y%4==0 && (y%100!=0 || y%400==0);
+    let max = match m { 1|3|5|7|8|10|12=>31, 4|6|9|11=>30, 2 if leap=>29, 2=>28, _=>0 };
+    d <= max
 }
 
 fn configure_connection(connection: &Connection) -> Result<(), String> {
