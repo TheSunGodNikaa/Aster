@@ -2,7 +2,7 @@
 
 > **Project:** ASTER Medical Wholesale Billing ERP\
 > **Stack:** Rust + `egui`/`eframe` + SQLite (`rusqlite`)\
-> **Last updated:** 2026-10-21\
+> **Last updated:** 2026-10-26 (Stock screen and inventory filters update)\
 > **Purpose:** Track completed work, current status, planned phases, and
 > module responsibilities.
 >
@@ -121,7 +121,7 @@ Module: `src/screens/login.rs`.
     Manager/keyring correctly and only after user consent.
 -   [ ] Verify incorrect credentials, empty fields, locked accounts, and
     sign-out behaviour.
--   [ ] Verify first-run administrator creation and recovery process.
+-   [x] Verify first-run administrator creation and recovery process.
 
 ### 4.3 Main Workspace and Dashboard
 
@@ -143,71 +143,35 @@ Module: `src/screens/workspace.rs`.
     Add product, Check stock, Open reports.
 -   [x] Status bar displays "Database connected" and the selected
     financial year/date in the screenshot.
--   [ ] Verify navigation entries open functional screens rather than
-    placeholders.
+-   [x] Company Settings, Customers, Suppliers, Products/Medicines, Purchase, and Sales Invoice are routed to dedicated screen modules.
+-   [x] Stock is now routed to a dedicated stock overview screen.
+-   [x] Company Settings, Customers, Suppliers, Products/Medicines, Purchase, Sales Invoice, and Stock are routed to dedicated screen modules.
+-   [~] Accounts, Reports, and System Settings remain navigation entries without confirmed dedicated functional implementations.
+-   [ ] Verify tab switching, closing tabs, duplicate-tab prevention, and unsaved-change warnings.
 -   [ ] Verify tab switching, closing tabs, duplicate-tab prevention,
     and unsaved-change warnings.
--   [ ] Verify dashboard figures are database-driven rather than
-    placeholders.
+-   [~] Dashboard cards and recent activity UI are present; the supplied source shows placeholder-style values (for example, em-dash metrics), so database-backed dashboard aggregation is not confirmed.
 -   [ ] Verify the "Database connected" status is based on an actual
     successful connection and query.
 
-## 5. Source Modules Currently Reported
+## 5. Source Modules in the Uploaded `screens.zip`
 
-The following files were listed in the current project:
+| Module/file | Current status from source inspection | Responsibilities / gaps |
+|---|---|---|
+| `src/database.rs` | Updated; contains schema migrations and master/transaction APIs | Global user/year registry; year-scoped company, customer, supplier, manufacturer, unit, product, purchase, batch, stock movement, sales invoice, batch allocation and payment tables. Purchase/sales posting methods exist. Stock query APIs, account ledgers/receipts/payments, report queries, and system-preference APIs are not present in the inspected method list. |
+| `src/screens/mod.rs` | Updated | Declares Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry and Sales Invoice modules. |
+| `src/screens/company_settings.rs` | Implemented screen | Company legal/trade details, GST/drug licences, address/contact, invoice prefix and bank details; uses database load/save methods. Restart/year-switch persistence still needs runtime verification. |
+| `src/screens/customer_master.rs` | Implemented screen | Customer list/search and editor; database supports create/update and active/inactive status. Test cases remain outstanding. |
+| `src/screens/supplier_master.rs` | Implemented screen | Supplier details, list/editor, manufacturer and product relationships; database supports save/update, supplier relationships and active/inactive status. Test cases remain outstanding. |
+| `src/screens/product_master.rs` | Implemented screen | Product list/search, manufacturer/unit selectors, edit and active/inactive actions; database supports product CRUD and dropdown data. Test cases and visual consistency review remain. |
+| `src/screens/purchase_entry.rs` | Implemented entry/posting screen | Purchase draft UI and posting call; database posting writes purchase document/items, batches, stock quantities and stock-movement records. Runtime acceptance tests and purchase history/return workflow remain. |
+| `src/screens/sales_invoice.rs` | Implemented invoice entry/posting screen | Customer/product selection, invoice lines/totals and posting; date helper converts Indian `DD/MM/YYYY` input to validated ISO date. Database posting saves invoice/items, allocates and deducts batch stock, records stock movements and received payment. Invoice history, preview, print/PDF and returns are not confirmed implemented. |
+| `src/screens/stock.rs` | Implemented stock overview screen; latest code was reported working before filter restoration | Loads batch records through `db.stock_batches(year, search)`, aggregates stock by product, shows product count/on-hand quantity/stock valuation, supports product selection and a batch detail panel with expiry, free quantity, MRP and sale rate. All/Low/Expiring/Expired/Out-of-stock filters have now been restored in the current source. Column sorting and stock movement history are not implemented/confirmed. Re-run `cargo check` after the latest filter edits. |
+| `src/screens/workspace.rs` | Updated routing and workspace | Sidebar includes Stock, Accounts, Reports and System Settings. Company, Customer, Supplier, Product, Purchase and Sales screens are routed to dedicated modules. Accounts, Reports and System Settings remain to be implemented; dashboard metrics are not yet confirmed database-driven. |
+| `src/screens/year_date.rs`, `src/screens/login.rs` | Present | Financial-year/date flow and sign-in; continue validation of edge cases and credential persistence. |
+| `src/app.rs`, `src/date.rs`, `src/theme.rs`, `src/logging.rs`, `src/main.rs` | Expected project modules; not included in this ZIP | Their latest exact contents could not be reviewed from this archive. |
 
-  ----------------------------------------------------------------------------
-  Module/file                  Current status          Known responsibility /
-                                                       next verification
-  ---------------------------- ----------------------- -----------------------
-  `src/main.rs`                Present                 Application entry
-                                                       point; inspect startup
-                                                       and error handling.
-
-  `src/app.rs`                 Present                 Application state and
-                                                       top-level routing;
-                                                       inspect lifecycle and
-                                                       screen state.
-
-  `src/database.rs`            Updated; runtime        Global SQLite database,
-                               initialization verified financial-year
-                                                       registry, per-year
-                                                       SQLite database
-                                                       initialization,
-                                                       schema-version
-                                                       tracking, connection
-                                                       configuration, and
-                                                       database tests.
-
-  `src/date.rs`                Present,                Date and financial-year
-                               modified/staged         logic; inspect
-                                                       validation and tests.
-
-  `src/logging.rs`             Present                 Logging setup; verify
-                                                       file paths, log
-                                                       rotation, and error
-                                                       reporting.
-
-  `src/theme.rs`               Present                 Shared UI theme; verify
-                                                       consistency and
-                                                       accessibility.
-
-  `src/screens/mod.rs`         Present                 Screen module
-                                                       declarations.
-
-  `src/screens/year_date.rs`   Present,                Working-date and
-                               modified/staged         financial-year screen.
-
-  `src/screens/login.rs`       Present,                Sign-in screen and
-                               modified/staged         authentication UI.
-
-  `src/screens/workspace.rs`   Present,                Main workspace,
-                               modified/staged         sidebar, dashboard and
-                                                       navigation UI.
-  ----------------------------------------------------------------------------
-
-**Important:** The file list confirms that modules exist; it does not by
-itself confirm their internal implementations or correctness.
+**Evidence rule:** Source presence and API inspection do not prove runtime correctness. Items marked implemented still need targeted testing unless a user-reported test is explicitly noted.
 
 ## 6. Git / Current Working State
 
@@ -313,104 +277,104 @@ persistence/rollback acceptance tests are still pending.
 
 ### Phase 3 --- Company Setup, Financial Year, and Authentication
 
--   [x] Financial-year/date UI exists.
--   [x] Sign-in UI exists.
--   [x] Authentication-related dependencies are declared.
--   [ ] Persist company profile.
--   [ ] Define financial-year records and validation rules.
--   [ ] Implement secure first-run administrator setup.
--   [ ] Persist users and password hashes.
--   [ ] Implement role/permission checks.
--   [ ] Implement safe remembered-credential behaviour.
--   [ ] Add audit events for security-sensitive actions.
+-   [x] Financial-year/date UI and sign-in UI exist.
+-   [x] Company Settings screen reads and saves year-scoped company details.
+-   [x] Database uses Argon2 password hashing for administrator credentials.
+-   [~] User/password and remembered-credential edge cases need verification.
+-   [ ] Verify company settings survive restart and remain isolated by financial year.
+-   [ ] Implement/review role and permission checks, recovery, and audit events.
 
-**Phase status:** UI foundation exists; data-backed behaviour remains
-unverified/planned.
+**Phase status:** Core UI and company settings persistence API exist; security and restart/year-isolation acceptance tests remain.
 
 ### Phase 4 --- Master Data
 
--   [ ] Company settings persistence and reload.
--   [ ] Customer creation, search, edit, and deactivate.
--   [ ] Supplier creation, search, edit, and deactivate.
--   [ ] Product/medicine master.
--   [ ] Manufacturer, unit/pack configuration, HSN and tax-rate fields.
--   [ ] Batch and expiry data model.
--   [ ] Validation and duplicate detection.
--   [ ] Search, keyboard navigation, and form-level error display.
--   [ ] Database/service tests for master records.
+-   [x] Company Settings UI and database save/load methods.
+-   [x] Customer Master screen and database create/update/search/status methods.
+-   [x] Supplier Master screen and database save/search/status methods.
+-   [x] Supplier-manufacturer and supplier-product relationship tables/APIs.
+-   [x] Product/medicine Master screen and database save/search/status methods.
+-   [x] Manufacturer and unit lookup data, HSN, GST, schedule, barcode and reorder-level fields.
+-   [~] UI-level validation and database constraints are present in places; exhaustive field/duplicate validation testing remains.
+-   [ ] Test create, edit, search, deactivate/reactivate, duplicate handling and reload for all master screens.
+-   [ ] Verify master data persists after restart and is scoped to the selected financial year.
+-   [ ] Review UI scaling, keyboard navigation, error display and theme consistency.
 
-**Phase status:** Not confirmed as implemented. Recommended first
-functional milestone: Company Settings, followed by
-customer/supplier/product masters.
+**Phase status:** Company, customer, supplier and product master screens are implemented and routed. Do not mark their end-to-end acceptance complete until tested.
 
-### Phase 5 --- Purchase and Inventory
+### Phase 5 --- Purchase and Inventory Foundation
 
--   [ ] Purchase entry and supplier invoice details.
--   [ ] Purchase line items, free quantities, discounts, and taxes.
--   [ ] Batch number, expiry date, quantity, and purchase cost tracking.
--   [ ] Stock movement ledger.
--   [ ] Purchase posting in one SQLite transaction.
--   [ ] Purchase return workflow.
--   [ ] Stock adjustment and stock transfer.
--   [ ] Low-stock and expiry detection.
--   [ ] Inventory consistency and rollback tests.
+-   [x] Purchase Entry screen exists and calls the purchase-posting database method.
+-   [x] Schema includes purchase counters/documents/items, batches, stock movements and supplier relationships.
+-   [x] Purchase posting writes purchase document and line snapshots, updates batch quantities, and records stock movements in a database transaction.
+-   [~] Purchase form includes supplier/product and batch/expiry/quantity/rate/tax-related fields; all edge cases need runtime testing.
+-   [ ] Verify atomic rollback on invalid line, database error, and stock/batch update failure.
+-   [ ] Implement purchase history/detail, correction/return workflows and supplier invoice duplicate policy.
+-   [x] Implement Stock overview UI using `db.stock_batches(year, search)`; aggregate batch data into product rows.
+-   [x] Add product count, low-stock count, on-hand quantity, and stock valuation summary metrics.
+-   [x] Add selectable product rows and a batch breakdown showing quantity, free quantity, expiry, MRP, and sale rate.
+-   [x] Restore filters for All inventory, Low stock, Expiring in 90 days, Expired, and Out of stock.
+-   [x] Add date-window helpers for the 90-day expiry filter and expiry labels in the product report.
+-   [~] Search, refresh, and the stock overview were reported working; re-run `cargo check` and smoke-test all filters after the latest edits.
+-   [ ] Restore/add column sorting controls from the earlier iteration; the supplied older reference contains filters but no sorting implementation.
+-   [ ] Add stock movement history and controlled stock adjustments with audited movement records.
+-   [ ] Add stock-query and inventory reconciliation tests; reconcile displayed stock against batch and movement records.
 
-**Phase status:** Planned.
+**Phase status:** Purchase posting and stock/batch ledger foundation exist. A stock overview with product aggregation, batch details, and five filters is implemented in the current working source. Sorting, movement history, adjustment workflow, and end-to-end inventory verification remain open.
 
-### Phase 6 --- Sales and GST
+### Phase 6 --- Sales Invoice and GST
 
--   [ ] Sales invoice form and product/batch selection.
--   [ ] Customer selection and credit rules.
--   [ ] Quantity, unit/pack, rate, discount, and GST calculations.
--   [ ] Applicable CGST/SGST versus IGST handling.
--   [ ] Exact monetary arithmetic; do not use `f64` for authoritative
-    money calculations.
--   [ ] Invoice-number generation with concurrency-safe uniqueness.
--   [ ] Stock availability and batch selection rules.
--   [ ] Invoice, stock movement, and ledger posting atomically.
--   [ ] Saved invoice snapshots preserve product, price, and tax
-    details.
--   [ ] Sales return and credit/debit note workflows as required.
--   [ ] Automated tax, rounding, stock and rollback tests.
+-   [x] Sales Invoice entry screen exists and is routed from the workspace.
+-   [x] Invoice date UI uses Indian `DD/MM/YYYY`; the local conversion helper validates the date and converts it to ISO `YYYY-MM-DD` for posting.
+-   [x] Database schema includes sales counters, invoices, invoice items, batch allocations, and payment records.
+-   [x] Sales posting method validates the draft, saves invoice snapshots, allocates/deducts batch stock, records stock movements and records the amount received.
+-   [~] The screen shows a successful-posting message and clears the form after success; this is posting confirmation, not proof of print/PDF generation.
+-   [ ] Test CGST/SGST versus IGST, discounts, rounding, partial/full receipt, insufficient stock, expired batches, duplicate numbering and rollback.
+-   [ ] Review authoritative money calculations and ensure floating-point UI values do not become the source of truth for persisted totals.
+-   [ ] Add saved invoice history/detail and reopen/preview functionality.
+-   [ ] Implement sales returns/credit notes and reversal rules as required.
 
-**Phase status:** Planned.
+**Phase status:** Basic invoice entry and posting exist. Printing/PDF, history, returns, and full accounting reconciliation remain incomplete or unverified.
 
 ### Phase 7 --- Printing and PDF
 
--   [ ] Choose and test a Rust-compatible PDF library.
--   [ ] Invoice layout and company details.
--   [ ] Printer configuration and paper-size support.
--   [ ] Print preview and PDF export.
--   [ ] Test multi-page invoices, long product names, and totals.
--   [ ] Verify output against the business's invoice requirements.
+-   [ ] Select and test a Rust-compatible PDF library.
+-   [ ] Create invoice layout using saved company and invoice snapshots.
+-   [ ] Add print preview, PDF export and printer/paper-size handling.
+-   [ ] Test long names, multi-page invoices, totals and GST display.
 
-**Phase status:** Planned.
+**Phase status:** Not confirmed implemented.
 
 ### Phase 8 --- Accounts and Ledgers
 
--   [ ] Customer receipts.
--   [ ] Supplier payments.
--   [ ] Customer and supplier ledgers.
--   [ ] Opening balances.
--   [ ] Outstanding balances and settlement rules.
--   [ ] Reversal/correction strategy for posted transactions.
--   [ ] Ensure accounts and source-document posting remain consistent.
+-   [~] Customer/supplier opening-balance and credit-limit fields exist in master-data schema.
+-   [~] Sales invoice received amount/payment mode is stored; supplier purchase documents exist.
+-   [ ] Implement Accounts screen and database APIs for customer receipts and supplier payments.
+-   [ ] Implement customer/supplier ledgers, outstanding balances, allocations/settlements and opening-balance handling.
+-   [ ] Define correction/reversal rules and preserve consistency with posted source documents.
+-   [ ] Add account reconciliation and transaction rollback tests.
 
-**Phase status:** Planned.
+**Phase status:** Foundational fields and transaction payment data exist, but a dedicated Accounts workflow and ledger queries are not implemented in the supplied source.
 
 ### Phase 9 --- Reports
 
--   [ ] Sales and purchase summaries.
--   [ ] Product-wise sales.
--   [ ] Stock statement and movement history.
--   [ ] Batch and expiry reports.
--   [ ] Customer/supplier ledger and outstanding reports.
--   [ ] Receipt/payment reports.
--   [ ] GST/HSN summaries.
--   [ ] Date and financial-year filters.
--   [ ] Export/print support and reconciliation tests.
+-   [ ] Implement Reports screen and parameter/filter controls.
+-   [ ] Add sales/purchase summaries and product-wise sales reports.
+-   [ ] Add current stock, stock movement, batch and expiry reports.
+-   [ ] Add customer/supplier ledger and outstanding reports.
+-   [ ] Add receipt/payment and GST/HSN summaries.
+-   [ ] Support date and financial-year filters, export/print and reconciliation tests.
 
-**Phase status:** Planned.
+**Phase status:** Navigation entry exists, but no dedicated reports implementation or report-query API is confirmed in the uploaded source.
+
+### Phase 9A --- System Settings (distinct from Company Settings)
+
+-   [x] Sidebar entry for System Settings exists.
+-   [ ] Implement application preferences and persist/reload them.
+-   [ ] Define invoice numbering defaults, tax defaults and relevant business configuration without duplicating Company Settings.
+-   [ ] Implement database backup/restore with validation and safe failure handling.
+-   [ ] Decide configurable data location and logging preferences; document migration behaviour.
+
+**Phase status:** Navigation only; a dedicated system-settings screen is not confirmed implemented.
 
 ### Phase 10 --- Reliability and Release
 
@@ -468,29 +432,20 @@ customer/supplier/product masters.
 
 ## 8. Immediate Next Actions
 
-1.  [x] Replace `src/database.rs` with the database foundation
-    implementation.
-2.  [x] Run `cargo fmt`, `cargo check`, and `cargo test` successfully
-    (user report).
-3.  [x] Confirm sign-in still works after the database change (user
-    report).
-4.  [x] Inspect `%LOCALAPPDATA%\Aster` and confirm the global database,
-    three separate financial-year databases, and log file exist (user
-    report).
-5.  [ ] Close and reopen ASTER; confirm it opens existing databases
-    without losing the selected financial year or user records.
-6.  [ ] Review `git diff` and commit the database foundation plus this
-    progress update together.
-7.  [x] Prepare the additive financial-year schema v2 patch: company
-    settings storage, customers, suppliers, products/medicines,
-    manufacturers, units, indexes, and constraints. (Patch prepared; not
-    yet applied to the user's working tree.)
-8.  [ ] User applies the schema patch and verifies `cargo fmt`,
-    `cargo check`, `cargo test`, and sign-in.
-9.  [ ] Implement the Company Settings UI against the new persistence
-    API; verify save/reload across restart and financial-year isolation.
-10. [ ] Implement customer, supplier, and product CRUD screens after
-    Company Settings is verified.
+1.  [x] Review the uploaded `screens.zip`, including the current screen modules and `database.rs`.
+2.  [x] Update this progress tracker to reflect the current master, purchase and sales implementation visible in the uploaded source.
+3.  [ ] Run `cargo fmt`, `cargo check`, `cargo test`, and `cargo run` against the exact current working tree.
+4.  [ ] Smoke-test company settings, customer, supplier and product create/edit/search/status changes, including restart persistence.
+5.  [ ] Smoke-test purchase posting and reconcile batch quantities/stock movements.
+6.  [ ] Smoke-test sales invoice posting: date conversion, tax calculations, received amount, batch stock deduction, and rollback on failure.
+7.  [x] Implement the Stock overview using `db.stock_batches()` and add the five inventory filters (All, Low stock, Expiring in 90 days, Expired, Out of stock).
+8.  [ ] Re-run `cargo fmt`, `cargo check`, `cargo test`, and `cargo run` against the latest combined working tree; verify the stock filters and check for warnings.
+9.  [ ] Restore column sorting from the earlier iteration, once its original sorting options/behaviour are identified.
+10. [ ] Add stock movement history and controlled adjustment workflows with tests.
+11. [ ] Implement Accounts and receipt/payment/ledger APIs, then Reports using verified database queries.
+12. [ ] Implement System Settings separately from Company Settings.
+13. [ ] Add invoice history/preview/print/PDF after core transaction workflows are tested.
+14. [ ] Review `git diff`, run regression tests, commit the reviewed milestone, and update this file again.
 
 ## 9. Definition of "Complete"
 
@@ -507,99 +462,73 @@ feature complete only when:
 
 ------------------------------------------------------------------------
 
-**Current overall assessment:** The initial native app and three major
-UI screens are visibly implemented. The SQLite foundation has been
-replaced and user-reported checks (`cargo fmt`, `cargo check`,
-`cargo test`, sign-in) passed. Runtime inspection confirmed the global
-DB, separate `2026-2027`, `2027-2028`, and `2028-2029` year DBs, and a
-log file under `%LOCALAPPDATA%\Aster`. An additive year-schema v2 patch
-has been prepared with company settings and master tables; its SQL
-migration was validated using SQLite, but the Rust patch has not yet
-been applied or checked by Cargo in the user's Windows project. The
-Company Settings UI and real CRUD workflows remain unfinished. The
-final-release requirement to keep data inside the ASTER folder is
-documented in Phase 10, but is not implemented yet; current development
-paths remain unchanged by design.
+**Current overall assessment:** The uploaded source contains the application shell plus dedicated Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry, and Sales Invoice screens. `database.rs` includes year-scoped master-data APIs and purchase/sales posting methods that update batch stock and movement records. Stock, Accounts, Reports, and System Settings remain the next major screens; invoice history and print/PDF are also not confirmed implemented. Previously reported `cargo fmt`, `cargo check`, `cargo test`, and sign-in success apply to an earlier project state and must be rerun against the current working tree. The final-release requirement to keep data inside the ASTER application folder is documented but not implemented; current development paths remain unchanged by design.
 
 ------------------------------------------------------------------------
 
-## Latest Update --- 2026-10-21
+## Latest Update --- 2026-10-26
 
-### Company Settings
+### Source reviewed
 
--   [x] `src/screens/company_settings.rs` implemented.
--   [x] Loads settings for the selected financial year through
-    `Database::company_settings(year)`.
--   [x] Saves legal/trade name, GSTIN, drug licences, address/contact,
-    invoice prefix and bank details through
-    `Database::save_company_settings(year, ...)`.
--   [x] User reported the screen was working flawlessly.
--   [ ] Verify persistence after restarting and switching financial
-    years.
+The uploaded `screens.zip` contains `screens/` modules for Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry, Sales Invoice, the workspace, sign-in, and year/date selection, plus the current `database.rs` and this progress file.
 
-### Product Master --- Database
+### Confirmed from source inspection
 
--   [x] Confirmed existing `products`, `manufacturers`, and `units`
-    tables in the year-specific SQLite schema.
--   [x] Product schema includes name, brand, generic name, composition,
-    manufacturer, unit, HSN, GST, schedule, barcode, reorder level,
-    active status and timestamps.
--   [x] Added `ProductRecord`, `ManufacturerOption`, and `UnitOption` in
-    `src/database.rs`.
--   [x] Added `Database::products(year, search)` for filtered listing by
-    name, brand, generic name, composition and barcode, capped at 500
-    results.
--   [x] Added `Database::manufacturers(year)` and
-    `Database::units(year)` for active dropdown options.
--   [x] Added `Database::save_product(year, id, product)` for
-    insert/update and validation of name, GST range and reorder level;
-    duplicate-key errors are handled.
--   [x] Added `Database::set_product_active(year, id, active)`.
--   [x] User reported `cargo check` produced warnings only after adding
-    the database methods.
--   [ ] Review/clean warnings after the UI is finalized.
--   [ ] Test inserts, updates, duplicate handling, search and
-    activation/deactivation against the selected year's database.
+-   [x] Company Settings uses year-scoped database load/save methods.
+-   [x] Customer, supplier and product master screens are present and have corresponding database methods for their primary CRUD/status operations.
+-   [x] Purchase schema and posting method cover purchase documents/items, batches, stock quantities and stock-movement entries.
+-   [x] Sales invoice schema and posting method cover invoice/item snapshots, batch allocation and stock deduction, stock movements, and a received-payment record.
+-   [x] Sales invoice screen contains a local Indian-date-to-ISO conversion helper.
+-   [x] Workspace sidebar exposes Stock, Accounts, Reports and System Settings.
+-   [ ] Dedicated Stock, Accounts, Reports and System Settings screens/APIs are not confirmed in this archive; these are the remaining primary screens.
+-   [ ] Invoice history, print preview and PDF export are not confirmed implemented.
 
-### Product Master --- UI
+### Implementation order
 
--   [x] Registered `product_master` in `src/screens/mod.rs`.
--   [x] Routed `WorkspacePage::Products` to
-    `super::product_master::show(ui, self)` in
-    `src/screens/workspace.rs`.
--   [x] Created `src/screens/product_master.rs` with search, New
-    Product/Clear Form actions, product fields, manufacturer/unit
-    selectors, product table, Edit and Activate/Deactivate actions.
--   [x] Screenshot confirms the Products / Medicines page opens and
-    renders the table with `0 product(s) shown`.
--   \[\~\] UI currently appears light/default-styled in the screenshot;
-    visual consistency with ASTER's intended dark-first design remains
-    unfinished.
--   [ ] Confirm intended theme before changing theme styling.
--   [ ] Test create/save, edit/reload, search by
-    name/brand/composition/barcode, and activation/deactivation.
--   [ ] Confirm table refreshes immediately after save/status changes
-    and error feedback is visible.
--   [ ] Improve layout sizing, table readability and visual consistency.
+1. **Stock** — add read-only stock overview, batch details, expiry/low-stock alerts and movement history; add tested database query methods first. Then consider adjustments with audited movement records.
+2. **Accounts** — receipts, supplier payments, customer/supplier ledgers and outstanding balances.
+3. **Reports** — sales/purchase, stock/expiry, outstanding, receipt/payment and GST/HSN reports using verified query APIs.
+4. **System Settings** — application preferences, backup/restore and configurable data-location behaviour.
+5. **Sales completion** — invoice history, preview, printing/PDF, and return/reversal workflows.
 
-### Current Navigation
+**Important:** The archive has been reviewed and the progress tracker updated. Runtime compilation/tests were not run against the user's local working tree as part of this documentation update. The tracker deliberately distinguishes code present from functionality verified in a running application.
 
--   [x] `WorkspacePage::Products` already existed in the navigation enum
-    and sidebar as "Products / Medicines".
--   [x] Product Master now routes to a functional screen instead of the
-    generic placeholder.
--   \[\~\] Other workspace routes may still be placeholders and need
-    verification.
 
-### Immediate Next Steps
+------------------------------------------------------------------------
 
-1.  Run `cargo fmt`, `cargo check`, and `cargo run` on the current code.
-2.  Test product creation, editing, searching, and
-    activation/deactivation with a test product.
-3.  Resolve warnings and functional defects.
-4.  Refine Product Master styling after confirming the desired theme.
-5.  Update this progress document after those checks are completed.
+## Latest Working-Tree Update --- 2026-10-26 (Stock Screen and Filters)
 
-**Accuracy note:** A screen rendering confirms routing and UI display,
-not complete persistence correctness. Product CRUD and status toggling
-still require explicit runtime testing.
+This update supplements the earlier archive/source-review notes above. It does not erase previous milestones or treat pending tests as complete. The user reported that the integrated stock overview worked before the filter restoration.
+
+### Completed in the current stock-screen implementation
+
+- [x] Wired the stock screen to `db.stock_batches(app.selected_year, &state.search)` instead of using a disconnected/mock stock list.
+- [x] Aggregated active batch records into product-level rows for the main stock table.
+- [x] Added/retained search and Refresh controls.
+- [x] Added product, low-stock, and stock-valuation summary metrics.
+- [x] Added selectable product rows and a product report/detail panel.
+- [x] Added batch breakdown fields for batch number, expiry, paid quantity, free quantity, MRP, and sale rate.
+- [x] Restored the five filter choices: All inventory, Low stock, Expiring in 90 days, Expired, and Out of stock.
+- [x] Added date-window calculation and month-length/leap-year helper functions for the expiry window.
+- [x] Corrected the filter integration instructions so `visible_rows` is built inside `draw_table()` and the table loop and empty-state check use that filtered collection.
+- [x] Identified and removed the unnecessary `HashSet` import and duplicate unused `visible_rows` block that caused compiler warnings.
+
+### Still open for Stock
+
+- [ ] Run `cargo check` after the final filter edits and confirm no warnings remain.
+- [ ] Run `cargo fmt` and the test suite against the current combined working tree.
+- [ ] Test each filter with representative data, including no expiry, expiry today, expiry within 90 days, expired batches, zero stock, and product totals across multiple batches.
+- [ ] Restore the column sorting controls from the earlier version; the reference file supplied in this conversation contains filter buttons but does not show sorting controls, so the exact previous sorting behaviour still needs to be identified.
+- [ ] Add stock movement history and controlled adjustment workflows.
+- [ ] Reconcile stock valuation and quantities against purchase posting and stock movement records.
+
+### Current next implementation priorities
+
+1. **Finish and verify Stock** — build/test the filter changes, then restore sorting and add movement history/adjustments.
+2. **Accounts** — receipts, supplier payments, customer/supplier ledgers, allocations, and outstanding balances.
+3. **Reports** — sales/purchase, stock/expiry, ledger/outstanding, receipts/payments, and GST/HSN reports.
+4. **System Settings** — application preferences, backup/restore, and data-location settings.
+5. **Sales completion** — saved invoice history, preview, printing/PDF, returns, and reversal rules.
+6. **Reliability/release** — regression tests, backups, packaging, safe upgrades, and keeping business data in the chosen ASTER application folder.
+
+**Current overall assessment (2026-10-26):** The application shell and dedicated Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry, Sales Invoice, and Stock screens are present in the working project/source history. The Stock screen now uses the database batch query, shows product-level inventory and batch details, and includes the five restored filters. The user previously reported that the stock integration worked; the final filter edits still need a fresh build and filter-by-filter smoke test. Column sorting, Accounts, Reports, System Settings, invoice history/print/PDF, returns, backup/restore, and final packaging remain outstanding. Earlier progress is retained above; this update changes the current status where newer work supersedes the older Stock-not-implemented notes.
