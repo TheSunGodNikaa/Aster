@@ -16,6 +16,8 @@ pub(crate) mod sales_invoice;
 
 pub(crate) mod purchase_entry;
 
+pub(crate) mod stock;
+
 pub(crate) fn show_error(ctx: &egui::Context, error: &str) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {

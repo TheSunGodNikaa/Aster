@@ -55,6 +55,23 @@ pub(crate) struct ProductRecord {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct StockBatchRecord {
+    pub product_id: i64,
+    pub product_name: String,
+    pub brand_name: String,
+    pub unit_name: String,
+    pub reorder_level: f64,
+    pub batch_id: Option<i64>,
+    pub batch_no: String,
+    pub expiry_date: String,
+    pub quantity_milli: i64,
+    pub free_quantity_milli: i64,
+    pub purchase_rate_paise: i64,
+    pub sale_rate_paise: i64,
+    pub mrp_paise: i64,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct CustomerRecord {
     pub id: i64,
     pub name: String,
@@ -976,6 +993,75 @@ impl Database {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Read products: {e}"))
+    }
+
+    pub(crate) fn stock_batches(
+        &self,
+        year: i32,
+        search: &str,
+    ) -> Result<Vec<StockBatchRecord>, String> {
+        let connection = self.year_connection(year)?;
+        let pattern = format!("%{}%", search.trim());
+
+        let mut statement = connection
+            .prepare(
+                "SELECT p.id, p.name, p.brand_name,
+                        COALESCE(u.short_name, ''),
+                        p.reorder_level, b.id,
+                        COALESCE(b.batch_no, ''),
+                        COALESCE(b.expiry_date, ''),
+                        COALESCE(b.qty_on_hand_milli, 0),
+                        COALESCE(b.free_qty_on_hand_milli, 0),
+                        COALESCE(b.purchase_rate_paise, 0),
+                        COALESCE(b.sale_rate_paise, 0),
+                        COALESCE(b.mrp_paise, 0)
+                FROM products p
+                LEFT JOIN units u ON u.id = p.unit_id
+                LEFT JOIN batches b
+                    ON b.product_id = p.id AND b.active = 1
+                WHERE p.active = 1 AND p.id IN (
+                    SELECT matched.id
+                    FROM products matched
+                    LEFT JOIN batches matched_batch
+                        ON matched_batch.product_id = matched.id
+                        AND matched_batch.active = 1
+                    WHERE matched.active = 1 AND (
+                        matched.name LIKE ?1 COLLATE NOCASE OR
+                        matched.brand_name LIKE ?1 COLLATE NOCASE OR
+                        matched.generic_name LIKE ?1 COLLATE NOCASE OR
+                        matched.composition LIKE ?1 COLLATE NOCASE OR
+                        matched.barcode LIKE ?1 COLLATE NOCASE OR
+                        COALESCE(matched_batch.batch_no, '')
+                            LIKE ?1 COLLATE NOCASE
+                    )
+                )
+                ORDER BY p.name COLLATE NOCASE,
+                        b.expiry_date, b.batch_no",
+            )
+            .map_err(|e| format!("Prepare stock list: {e}"))?;
+
+        let rows = statement
+            .query_map([pattern], |row| {
+                Ok(StockBatchRecord {
+                    product_id: row.get(0)?,
+                    product_name: row.get(1)?,
+                    brand_name: row.get(2)?,
+                    unit_name: row.get(3)?,
+                    reorder_level: row.get(4)?,
+                    batch_id: row.get(5)?,
+                    batch_no: row.get(6)?,
+                    expiry_date: row.get(7)?,
+                    quantity_milli: row.get(8)?,
+                    free_quantity_milli: row.get(9)?,
+                    purchase_rate_paise: row.get(10)?,
+                    sale_rate_paise: row.get(11)?,
+                    mrp_paise: row.get(12)?,
+                })
+            })
+            .map_err(|e| format!("Query stock list: {e}"))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Read stock list: {e}"))
     }
 
     pub(crate) fn manufacturers(&self, year: i32) -> Result<Vec<ManufacturerOption>, String> {
