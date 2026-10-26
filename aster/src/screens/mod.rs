@@ -12,6 +12,10 @@ pub(crate) mod customer_master;
 
 pub(crate) mod supplier_master;
 
+pub(crate) mod sales_invoice;
+
+pub(crate) mod purchase_entry;
+
 pub(crate) fn show_error(ctx: &egui::Context, error: &str) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {
@@ -39,5 +43,3 @@ pub(crate) fn show_background_error(ui: &mut egui::Ui, app: &crate::app::AsterAp
         );
     }
 }
-
-pub(crate) mod purchase_entry;

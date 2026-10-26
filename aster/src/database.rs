@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::date::local_date;
 
 const CURRENT_GLOBAL_SCHEMA: i64 = 2;
-const CURRENT_YEAR_SCHEMA: i64 = 4;
+const CURRENT_YEAR_SCHEMA: i64 = 5;
 const MIN_FINANCIAL_YEAR: i32 = 1900;
 const MAX_FINANCIAL_YEAR: i32 = 9998;
 
@@ -129,6 +129,25 @@ pub(crate) struct PurchaseDraft {
     pub invoice_date: String,
     pub notes: String,
     pub lines: Vec<PurchaseLineDraft>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SalesLineDraft {
+    pub product_id: i64,
+    pub quantity_milli: i64,
+    pub rate_paise: i64,
+    pub discount_basis_points: i64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SalesInvoiceDraft {
+    pub customer_id: i64,
+    pub invoice_date: String,
+    pub overall_discount_basis_points: i64,
+    pub amount_received_paise: i64,
+    pub payment_mode: String,
+    pub notes: String,
+    pub lines: Vec<SalesLineDraft>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -561,6 +580,75 @@ impl Database {
                 PRAGMA user_version = 4;
                 COMMIT;"
             ).map_err(|error| format!("Apply purchase and inventory migration: {error}"))?;
+        }
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| format!("Re-read financial-year schema version: {error}"))?;
+        if version < 5 {
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                CREATE TABLE sales_counters (
+                    financial_year_start INTEGER PRIMARY KEY,
+                    last_number INTEGER NOT NULL DEFAULT 0 CHECK (last_number >= 0)
+                );
+                CREATE TABLE sales_invoices (
+                    id INTEGER PRIMARY KEY,
+                    invoice_no TEXT NOT NULL UNIQUE,
+                    customer_id INTEGER NOT NULL REFERENCES customers(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    customer_name_snap TEXT NOT NULL,
+                    customer_gstin_snap TEXT NOT NULL DEFAULT '',
+                    customer_state_code_snap TEXT NOT NULL DEFAULT '',
+                    invoice_date TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'posted' CHECK(status IN ('posted','reversed')),
+                    taxable_paise INTEGER NOT NULL CHECK(taxable_paise >= 0),
+                    cgst_paise INTEGER NOT NULL CHECK(cgst_paise >= 0),
+                    sgst_paise INTEGER NOT NULL CHECK(sgst_paise >= 0),
+                    igst_paise INTEGER NOT NULL CHECK(igst_paise >= 0),
+                    total_paise INTEGER NOT NULL CHECK(total_paise >= 0),
+                    received_paise INTEGER NOT NULL CHECK(received_paise >= 0),
+                    payment_mode TEXT NOT NULL,
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX idx_sales_invoice_date ON sales_invoices(invoice_date,id);
+                CREATE INDEX idx_sales_invoice_customer ON sales_invoices(customer_id,invoice_date);
+                CREATE TABLE sales_invoice_items (
+                    id INTEGER PRIMARY KEY,
+                    invoice_id INTEGER NOT NULL REFERENCES sales_invoices(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    line_no INTEGER NOT NULL,
+                    product_id INTEGER NOT NULL REFERENCES products(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    product_name_snap TEXT NOT NULL,
+                    hsn_snap TEXT NOT NULL DEFAULT '',
+                    gst_basis_points INTEGER NOT NULL CHECK(gst_basis_points BETWEEN 0 AND 10000),
+                    quantity_milli INTEGER NOT NULL CHECK(quantity_milli > 0),
+                    rate_paise INTEGER NOT NULL CHECK(rate_paise >= 0),
+                    discount_basis_points INTEGER NOT NULL CHECK(discount_basis_points BETWEEN 0 AND 10000),
+                    taxable_paise INTEGER NOT NULL CHECK(taxable_paise >= 0),
+                    cgst_paise INTEGER NOT NULL CHECK(cgst_paise >= 0),
+                    sgst_paise INTEGER NOT NULL CHECK(sgst_paise >= 0),
+                    igst_paise INTEGER NOT NULL CHECK(igst_paise >= 0),
+                    UNIQUE(invoice_id,line_no)
+                );
+                CREATE TABLE sales_invoice_batches (
+                    id INTEGER PRIMARY KEY,
+                    invoice_item_id INTEGER NOT NULL REFERENCES sales_invoice_items(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    batch_id INTEGER NOT NULL REFERENCES batches(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    quantity_milli INTEGER NOT NULL CHECK(quantity_milli > 0),
+                    batch_no_snap TEXT NOT NULL,
+                    expiry_date_snap TEXT NOT NULL
+                );
+                CREATE TABLE sales_payments (
+                    id INTEGER PRIMARY KEY,
+                    invoice_id INTEGER NOT NULL REFERENCES sales_invoices(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                    amount_paise INTEGER NOT NULL CHECK(amount_paise >= 0),
+                    payment_mode TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT OR IGNORE INTO schema_migrations(version) VALUES (5);
+                PRAGMA user_version = 5;
+                COMMIT;"
+            ).map_err(|error| format!("Apply sales invoice migration: {error}"))?;
         }
 
         let stored_year: Option<i32> = connection
@@ -1519,6 +1607,100 @@ impl Database {
         tx.commit()
             .map_err(|e| format!("Commit purchase and stock: {e}"))?;
         Ok(purchase_no)
+    }
+
+    pub(crate) fn post_sales_invoice(&self, year: i32, draft: &SalesInvoiceDraft) -> Result<String, String> {
+        if draft.customer_id <= 0 { return Err("Select a customer.".into()); }
+        if !valid_iso_date(&draft.invoice_date) { return Err("Invoice date must be a valid YYYY-MM-DD date.".into()); }
+        if draft.lines.is_empty() { return Err("Add at least one product line.".into()); }
+        if !(0..=10000).contains(&draft.overall_discount_basis_points) { return Err("Overall discount must be between 0% and 100%.".into()); }
+        if draft.amount_received_paise < 0 { return Err("Received amount cannot be negative.".into()); }
+        let mut connection = self.year_connection(year)?;
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| format!("Start sales transaction: {e}"))?;
+        let customer: (String,String,String,i64) = tx.query_row(
+            "SELECT name,gstin,state_code,active FROM customers WHERE id=?1", [draft.customer_id],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+        ).map_err(|_| "Selected customer no longer exists.".to_owned())?;
+        if customer.3 == 0 { return Err("This customer is inactive.".into()); }
+        let settings: (String,String) = tx.query_row(
+            "SELECT invoice_prefix,state_code FROM company_settings WHERE id=1", [],
+            |r| Ok((r.get(0)?,r.get(1)?))
+        ).optional().map_err(|e| format!("Read invoice settings: {e}"))?.unwrap_or(("INV".into(),String::new()));
+        let local_supply = !settings.1.trim().is_empty() && settings.1.trim() == customer.2.trim();
+        let previous: i64 = tx.query_row("SELECT last_number FROM sales_counters WHERE financial_year_start=?1", [year], |r|r.get(0))
+            .optional().map_err(|e|format!("Read invoice counter: {e}"))?.unwrap_or(0);
+        let next = previous.checked_add(1).ok_or("Invoice number counter overflowed.")?;
+        let prefix = if settings.0.trim().is_empty() { "INV" } else { settings.0.trim() };
+        let invoice_no = format!("{prefix}-{year}-{:06}", next);
+        let mut computed: Vec<(SalesLineDraft,String,String,i64,i64,i64,i64,i64)> = Vec::new();
+        let mut taxable_total: i64 = 0;
+        let mut cgst_total: i64 = 0;
+        let mut sgst_total: i64 = 0;
+        let mut igst_total: i64 = 0;
+        for (i,line) in draft.lines.iter().enumerate() {
+            if line.product_id <= 0 || line.quantity_milli <= 0 || line.rate_paise < 0 || !(0..=10000).contains(&line.discount_basis_points) {
+                return Err(format!("Line {}: product, positive quantity, non-negative rate and valid discount are required.",i+1));
+            }
+            let product: (String,String,i64,i64) = tx.query_row(
+                "SELECT name,hsn_code,CAST(ROUND(gst_percent*100) AS INTEGER),active FROM products WHERE id=?1", [line.product_id],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+            ).map_err(|_|format!("Line {}: product no longer exists.",i+1))?;
+            if product.3 == 0 { return Err(format!("Line {}: '{}' is inactive.",i+1,product.0)); }
+            if !(0..=10000).contains(&product.2) { return Err(format!("Line {}: GST rate is invalid.",i+1)); }
+            let gross = (line.quantity_milli as i128).checked_mul(line.rate_paise as i128).ok_or("Invoice amount overflow.")? / 1000;
+            let line_taxable: i64 = ((gross * (10000-line.discount_basis_points) as i128 + 5000)/10000).try_into().map_err(|_|"Invoice taxable amount overflow.")?;
+            taxable_total = taxable_total.checked_add(line_taxable).ok_or("Invoice taxable total overflow.")?;
+            computed.push((line.clone(),product.0,product.1,product.2,line_taxable,0,0,0));
+        }
+        let global_discount = ((taxable_total as i128 * draft.overall_discount_basis_points as i128 + 5000)/10000) as i64;
+        let mut remaining_discount = global_discount;
+        let mut remaining_taxable = taxable_total;
+        for item in &mut computed {
+            let share: i64 = if remaining_taxable <= 0 { 0 } else if item.4 == remaining_taxable { remaining_discount } else { (((item.4 as i128 * global_discount as i128 + taxable_total.max(1) as i128 / 2) / taxable_total.max(1) as i128) as i64).min(item.4) };
+            let share = share.min(remaining_discount.max(0));
+            let net = item.4 - share;
+            remaining_discount -= share;
+            remaining_taxable -= item.4;
+            let tax = ((net as i128 * item.3 as i128 + 5000)/10000) as i64;
+            let (cgst,sgst,igst) = if local_supply { let c=tax/2; (c,tax-c,0) } else { (0,0,tax) };
+            item.4 = net; item.5=cgst; item.6=sgst; item.7=igst;
+            cgst_total = cgst_total.checked_add(cgst).ok_or("Invoice tax overflow.")?;
+            sgst_total = sgst_total.checked_add(sgst).ok_or("Invoice tax overflow.")?;
+            igst_total = igst_total.checked_add(igst).ok_or("Invoice tax overflow.")?;
+        }
+        let taxable_after_discount = computed.iter().try_fold(0i64,|a,x|a.checked_add(x.4).ok_or("Invoice taxable total overflow."))?;
+        let total = taxable_after_discount.checked_add(cgst_total).and_then(|v|v.checked_add(sgst_total)).and_then(|v|v.checked_add(igst_total)).ok_or("Invoice total overflow.")?;
+        if draft.amount_received_paise > total { return Err("Received amount cannot exceed invoice total; record excess as a separate receipt.".into()); }
+        tx.execute("INSERT INTO sales_counters(financial_year_start,last_number) VALUES(?1,?2) ON CONFLICT(financial_year_start) DO UPDATE SET last_number=excluded.last_number",params![year,next]).map_err(|e|format!("Reserve invoice number: {e}"))?;
+        tx.execute("INSERT INTO sales_invoices(invoice_no,customer_id,customer_name_snap,customer_gstin_snap,customer_state_code_snap,invoice_date,taxable_paise,cgst_paise,sgst_paise,igst_paise,total_paise,received_paise,payment_mode,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![invoice_no,draft.customer_id,customer.0,customer.1,customer.2,draft.invoice_date,taxable_after_discount,cgst_total,sgst_total,igst_total,total,draft.amount_received_paise,draft.payment_mode.trim(),draft.notes.trim()]).map_err(|e|format!("Save sales invoice: {e}"))?;
+        let invoice_id=tx.last_insert_rowid();
+        for (index,item) in computed.iter().enumerate() {
+            let line=&item.0;
+            tx.execute("INSERT INTO sales_invoice_items(invoice_id,line_no,product_id,product_name_snap,hsn_snap,gst_basis_points,quantity_milli,rate_paise,discount_basis_points,taxable_paise,cgst_paise,sgst_paise,igst_paise) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![invoice_id,index as i64+1,line.product_id,item.1,item.2,item.3,line.quantity_milli,line.rate_paise,line.discount_basis_points,item.4,item.5,item.6,item.7]).map_err(|e|format!("Save invoice line {}: {e}",index+1))?;
+            let item_id=tx.last_insert_rowid();
+            let mut needed=line.quantity_milli;
+            let mut stmt=tx.prepare("SELECT id,batch_no,expiry_date,qty_on_hand_milli FROM batches WHERE product_id=?1 AND active=1 AND expiry_date>=?2 AND qty_on_hand_milli>0 ORDER BY expiry_date, id")
+                .map_err(|e|format!("Prepare stock allocation: {e}"))?;
+            let batches=stmt.query_map(params![line.product_id,draft.invoice_date],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,i64>(3)?)))
+                .map_err(|e|format!("Read available stock: {e}"))?.collect::<Result<Vec<_>,_>>().map_err(|e|format!("Read stock batches: {e}"))?;
+            drop(stmt);
+            let available: i64=batches.iter().try_fold(0i64,|a,b|a.checked_add(b.3).ok_or("Stock quantity overflow."))?;
+            if available < needed { return Err(format!("Insufficient unexpired stock for '{}': requested {:.3}, available {:.3}.",item.1,line.quantity_milli as f64/1000.0,available as f64/1000.0)); }
+            for (batch_id,batch_no,expiry,qty) in batches {
+                if needed<=0 { break; }
+                let take=needed.min(qty);
+                tx.execute("UPDATE batches SET qty_on_hand_milli=qty_on_hand_milli-?1 WHERE id=?2 AND qty_on_hand_milli>=?1",params![take,batch_id]).map_err(|e|format!("Deduct batch stock: {e}"))?;
+                tx.execute("INSERT INTO sales_invoice_batches(invoice_item_id,batch_id,quantity_milli,batch_no_snap,expiry_date_snap) VALUES(?1,?2,?3,?4,?5)",params![item_id,batch_id,take,batch_no,expiry]).map_err(|e|format!("Save invoice batch allocation: {e}"))?;
+                tx.execute("INSERT INTO stock_movements(batch_id,movement_type,reference_type,reference_id,quantity_change_milli,free_quantity_change_milli) VALUES(?1,'sale','sales_invoice',?2,?3,0)",params![batch_id,invoice_id,-take]).map_err(|e|format!("Record stock movement: {e}"))?;
+                needed-=take;
+            }
+        }
+        if draft.amount_received_paise>0 {
+            tx.execute("INSERT INTO sales_payments(invoice_id,amount_paise,payment_mode) VALUES(?1,?2,?3)",params![invoice_id,draft.amount_received_paise,draft.payment_mode.trim()]).map_err(|e|format!("Record invoice payment: {e}"))?;
+        }
+        tx.commit().map_err(|e|format!("Commit invoice and stock: {e}"))?;
+        Ok(invoice_no)
     }
 
     pub(crate) fn set_customer_active(
