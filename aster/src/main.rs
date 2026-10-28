@@ -4,6 +4,7 @@ mod date;
 mod logging;
 mod screens;
 mod theme;
+mod utils;
 
 fn app_icon() -> eframe::egui::IconData {
     let image = image::load_from_memory(include_bytes!("../assets/Aster-icon.png"))

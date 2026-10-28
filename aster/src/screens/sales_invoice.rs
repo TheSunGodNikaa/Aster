@@ -1,6 +1,4 @@
-use eframe::egui::{
-    self, Align, Color32, Id, Margin, RichText, Stroke, Vec2,
-};
+use eframe::egui::{self, Align, Color32, Id, Margin, RichText, Stroke, Vec2};
 
 use crate::{
     app::AsterApp,
@@ -139,22 +137,19 @@ impl SalesState {
     }
 
     fn taxable(&self) -> f64 {
-        (self.subtotal() - self.line_discount() - self.overall_discount_value())
-            .max(0.0)
+        (self.subtotal() - self.line_discount() - self.overall_discount_value()).max(0.0)
     }
 
     fn tax(&self) -> f64 {
         let line_tax: f64 = self.lines.iter().map(InvoiceLine::tax).sum();
 
-        let before_global_discount =
-            (self.subtotal() - self.line_discount()).max(0.0);
+        let before_global_discount = (self.subtotal() - self.line_discount()).max(0.0);
 
         if before_global_discount <= 0.0 {
             return 0.0;
         }
 
-        let global_discount_ratio =
-            (self.taxable() / before_global_discount).clamp(0.0, 1.0);
+        let global_discount_ratio = (self.taxable() / before_global_discount).clamp(0.0, 1.0);
 
         line_tax * global_discount_ratio
     }
@@ -215,10 +210,7 @@ fn section_title(ui: &mut egui::Ui, title: &str, subtitle: &str) {
     ui.add_space(12.0);
 }
 
-fn card(
-    ui: &mut egui::Ui,
-    content: impl FnOnce(&mut egui::Ui),
-) {
+fn card(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(Color32::WHITE)
         .stroke(Stroke::new(1.0_f32, BORDER))
@@ -230,19 +222,10 @@ fn card(
 }
 
 fn small_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(
-        RichText::new(text)
-            .size(11.5)
-            .strong()
-            .color(SOFT),
-    );
+    ui.label(RichText::new(text).size(11.5).strong().color(SOFT));
 }
 
-fn primary_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    enabled: bool,
-) -> egui::Response {
+fn primary_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
     ui.add_enabled(
         enabled,
         egui::Button::new(
@@ -251,24 +234,23 @@ fn primary_button(
                 .strong()
                 .color(Color32::WHITE),
         )
-        .fill(if enabled { PURPLE } else { Color32::from_gray(190) })
+        .fill(if enabled {
+            PURPLE
+        } else {
+            Color32::from_gray(190)
+        })
         .corner_radius(8.0)
         .min_size(Vec2::new(132.0, 36.0)),
     )
 }
 
-fn secondary_button(
-    ui: &mut egui::Ui,
-    label: &str,
-) -> egui::Response {
+fn secondary_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     ui.add(
-        egui::Button::new(
-            RichText::new(label).size(12.5).color(INK),
-        )
-        .fill(Color32::from_rgb(250, 249, 252))
-        .stroke(Stroke::new(1.0_f32, BORDER))
-        .corner_radius(8.0)
-        .min_size(Vec2::new(84.0, 34.0)),
+        egui::Button::new(RichText::new(label).size(12.5).color(INK))
+            .fill(Color32::from_rgb(250, 249, 252))
+            .stroke(Stroke::new(1.0_f32, BORDER))
+            .corner_radius(8.0)
+            .min_size(Vec2::new(84.0, 34.0)),
     )
 }
 
@@ -285,8 +267,7 @@ fn load_customers(app: &AsterApp, state: &mut SalesState) {
     match app.db.as_ref() {
         Some(db) => match db.customers(state.year, &search) {
             Ok(rows) => {
-                state.customer_results =
-                    rows.into_iter().filter(|row| row.active).collect();
+                state.customer_results = rows.into_iter().filter(|row| row.active).collect();
             }
             Err(error) => {
                 state.customer_results.clear();
@@ -313,8 +294,7 @@ fn load_products(app: &AsterApp, state: &mut SalesState) {
     match app.db.as_ref() {
         Some(db) => match db.products(state.year, &search) {
             Ok(rows) => {
-                state.product_results =
-                    rows.into_iter().filter(|row| row.active).collect();
+                state.product_results = rows.into_iter().filter(|row| row.active).collect();
             }
             Err(error) => {
                 state.product_results.clear();
@@ -336,13 +316,20 @@ fn format_currency(value: f64) -> String {
 
     let mut grouped = String::new();
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i == 3 || (digits.len() - i > 3 && (digits.len() - i - 3) % 2 == 0)) {
+        if i > 0
+            && (digits.len() - i == 3 || (digits.len() - i > 3 && (digits.len() - i - 3) % 2 == 0))
+        {
             grouped.push(',');
         }
         grouped.push(ch);
     }
 
-    format!("₹{}{}.{}", if negative { "-" } else { "" }, grouped, decimal)
+    format!(
+        "₹{}{}.{}",
+        if negative { "-" } else { "" },
+        grouped,
+        decimal
+    )
 }
 
 fn add_product(state: &mut SalesState, product: &ProductRecord) {
@@ -372,10 +359,7 @@ fn add_product(state: &mut SalesState, product: &ProductRecord) {
     state.message = format!("{} added to the invoice.", product.name);
 }
 
-fn show_customer_section(
-    ui: &mut egui::Ui,
-    state: &mut SalesState,
-) {
+fn show_customer_section(ui: &mut egui::Ui, state: &mut SalesState) {
     section_title(
         ui,
         "Customer details",
@@ -407,19 +391,10 @@ fn show_customer_section(
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new(&customer.name)
-                                .size(14.0)
-                                .strong()
-                                .color(INK),
-                        );
+                        ui.label(RichText::new(&customer.name).size(14.0).strong().color(INK));
 
                         if !customer.phone.is_empty() {
-                            ui.label(
-                                RichText::new(&customer.phone)
-                                    .size(12.0)
-                                    .color(MUTED),
-                            );
+                            ui.label(RichText::new(&customer.phone).size(12.0).color(MUTED));
                         }
 
                         if !customer.gstin.is_empty() {
@@ -442,23 +417,16 @@ fn show_customer_section(
                         .join(", ");
 
                         if !address.is_empty() {
-                            ui.label(
-                                RichText::new(address)
-                                    .size(11.5)
-                                    .color(MUTED),
-                            );
+                            ui.label(RichText::new(address).size(11.5).color(MUTED));
                         }
                     });
 
-                    ui.with_layout(
-                        egui::Layout::right_to_left(Align::Center),
-                        |ui| {
-                            if secondary_button(ui, "Change").clicked() {
-                                state.selected_customer = None;
-                                state.show_customer_results = true;
-                            }
-                        },
-                    );
+                    ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                        if secondary_button(ui, "Change").clicked() {
+                            state.selected_customer = None;
+                            state.show_customer_results = true;
+                        }
+                    });
                 });
             });
     } else if state.show_customer_results {
@@ -491,16 +459,11 @@ fn show_customer_section(
                                 if ui
                                     .add(
                                         egui::Button::new(
-                                            RichText::new(label)
-                                                .size(12.5)
-                                                .color(INK),
+                                            RichText::new(label).size(12.5).color(INK),
                                         )
                                         .fill(Color32::TRANSPARENT)
                                         .corner_radius(5.0)
-                                        .min_size(Vec2::new(
-                                            ui.available_width(),
-                                            32.0,
-                                        )),
+                                        .min_size(Vec2::new(ui.available_width(), 32.0)),
                                     )
                                     .clicked()
                                 {
@@ -521,10 +484,7 @@ fn show_customer_section(
         ui.vertical(|ui| {
             small_label(ui, "INVOICE DATE");
             ui.add_space(4.0);
-            ui.add(
-                egui::TextEdit::singleline(&mut state.invoice_date)
-                    .desired_width(140.0),
-            );
+            ui.add(egui::TextEdit::singleline(&mut state.invoice_date).desired_width(140.0));
         });
 
         ui.add_space(16.0);
@@ -533,24 +493,16 @@ fn show_customer_section(
             small_label(ui, "FINANCIAL YEAR");
             ui.add_space(8.0);
             ui.label(
-                RichText::new(format!(
-                    "{}–{}",
-                    state.year,
-                    state.year + 1
-                ))
-                .size(13.0)
-                .strong()
-                .color(INK),
+                RichText::new(format!("{}–{}", state.year, state.year + 1))
+                    .size(13.0)
+                    .strong()
+                    .color(INK),
             );
         });
     });
 }
 
-fn show_product_picker(
-    ui: &mut egui::Ui,
-    state: &mut SalesState,
-    products: &[ProductRecord],
-) {
+fn show_product_picker(ui: &mut egui::Ui, state: &mut SalesState, products: &[ProductRecord]) {
     section_title(
         ui,
         "Add products",
@@ -602,10 +554,7 @@ fn show_product_picker(
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
                                 ui.label(
-                                    RichText::new(&product.name)
-                                        .size(12.5)
-                                        .strong()
-                                        .color(INK),
+                                    RichText::new(&product.name).size(12.5).strong().color(INK),
                                 );
 
                                 let details = [
@@ -619,11 +568,7 @@ fn show_product_picker(
                                 .join(" · ");
 
                                 if !details.is_empty() {
-                                    ui.label(
-                                        RichText::new(details)
-                                            .size(10.5)
-                                            .color(MUTED),
-                                    );
+                                    ui.label(RichText::new(details).size(10.5).color(MUTED));
                                 }
 
                                 ui.label(
@@ -641,26 +586,21 @@ fn show_product_picker(
                                 );
                             });
 
-                            ui.with_layout(
-                                egui::Layout::right_to_left(Align::Center),
-                                |ui| {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                RichText::new("+ Add")
-                                                    .strong()
-                                                    .color(PURPLE),
-                                            )
-                                            .fill(TINT)
-                                            .corner_radius(7.0),
+                            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new("+ Add").strong().color(PURPLE),
                                         )
-                                        .clicked()
-                                    {
-                                        add_product(state, product);
-                                        state.show_product_results = false;
-                                    }
-                                },
-                            );
+                                        .fill(TINT)
+                                        .corner_radius(7.0),
+                                    )
+                                    .clicked()
+                                {
+                                    add_product(state, product);
+                                    state.show_product_results = false;
+                                }
+                            });
                         });
 
                         ui.add_space(5.0);
@@ -675,10 +615,7 @@ fn show_product_picker(
         });
 }
 
-fn show_invoice_lines(
-    ui: &mut egui::Ui,
-    state: &mut SalesState,
-) {
+fn show_invoice_lines(ui: &mut egui::Ui, state: &mut SalesState) {
     section_title(
         ui,
         "Invoice items",
@@ -710,12 +647,7 @@ fn show_invoice_lines(
                         Vec2::new((width * fraction - 8.0).max(30.0), 20.0),
                         egui::Layout::left_to_right(Align::Center),
                         |ui| {
-                            ui.label(
-                                RichText::new(label)
-                                    .size(9.5)
-                                    .strong()
-                                    .color(SOFT),
-                            );
+                            ui.label(RichText::new(label).size(9.5).strong().color(SOFT));
                         },
                     );
                 }
@@ -740,11 +672,9 @@ fn show_invoice_lines(
                     ui.add_space(4.0);
 
                     ui.label(
-                        RichText::new(
-                            "Search for a medicine above to begin building the invoice.",
-                        )
-                        .size(12.0)
-                        .color(MUTED),
+                        RichText::new("Search for a medicine above to begin building the invoice.")
+                            .size(12.0)
+                            .color(MUTED),
                     );
                 });
             });
@@ -768,12 +698,7 @@ fn show_invoice_lines(
                         Vec2::new((width * 0.28 - 8.0).max(60.0), 52.0),
                         egui::Layout::top_down(Align::Min),
                         |ui| {
-                            ui.label(
-                                RichText::new(&line.name)
-                                    .size(11.5)
-                                    .strong()
-                                    .color(INK),
-                            );
+                            ui.label(RichText::new(&line.name).size(11.5).strong().color(INK));
 
                             ui.label(
                                 RichText::new(format!("HSN: {}", line.hsn))
@@ -782,19 +707,11 @@ fn show_invoice_lines(
                             );
 
                             if !line.brand.is_empty() {
-                                ui.label(
-                                    RichText::new(&line.brand)
-                                        .size(10.0)
-                                        .color(MUTED),
-                                );
+                                ui.label(RichText::new(&line.brand).size(10.0).color(MUTED));
                             }
 
                             if !line.unit.is_empty() {
-                                ui.label(
-                                    RichText::new(&line.unit)
-                                        .size(9.5)
-                                        .color(SOFT),
-                                );
+                                ui.label(RichText::new(&line.unit).size(9.5).color(SOFT));
                             }
                         },
                     );
@@ -867,13 +784,9 @@ fn show_invoice_lines(
                         |ui| {
                             if ui
                                 .add(
-                                    egui::Button::new(
-                                        RichText::new("×")
-                                            .size(18.0)
-                                            .color(RED),
-                                    )
-                                    .fill(Color32::from_rgb(253, 242, 242))
-                                    .corner_radius(6.0),
+                                    egui::Button::new(RichText::new("×").size(18.0).color(RED))
+                                        .fill(Color32::from_rgb(253, 242, 242))
+                                        .corner_radius(6.0),
                                 )
                                 .clicked()
                             {
@@ -886,16 +799,14 @@ fn show_invoice_lines(
                 if line.quantity.trim().parse::<f64>().unwrap_or(0.0) <= 0.0 {
                     ui.colored_label(
                         RED,
-                        RichText::new("Quantity must be greater than zero.")
-                            .size(10.0),
+                        RichText::new("Quantity must be greater than zero.").size(10.0),
                     );
                 }
 
                 if line.rate.trim().parse::<f64>().unwrap_or(-1.0) < 0.0 {
                     ui.colored_label(
                         AMBER,
-                        RichText::new("Enter a valid selling rate.")
-                            .size(10.0),
+                        RichText::new("Enter a valid selling rate.").size(10.0),
                     );
                 }
             });
@@ -910,10 +821,7 @@ fn show_invoice_lines(
     }
 }
 
-fn show_totals(
-    ui: &mut egui::Ui,
-    state: &mut SalesState,
-) {
+fn show_totals(ui: &mut egui::Ui, state: &mut SalesState) {
     section_title(
         ui,
         "Invoice summary",
@@ -922,22 +830,11 @@ fn show_totals(
 
     let summary_row = |ui: &mut egui::Ui, label: &str, amount: f64| {
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(label)
-                    .size(12.0)
-                    .color(MUTED),
-            );
+            ui.label(RichText::new(label).size(12.0).color(MUTED));
 
-            ui.with_layout(
-                egui::Layout::right_to_left(Align::Center),
-                |ui| {
-                    ui.label(
-                        RichText::new(money(amount))
-                            .size(12.0)
-                            .color(INK),
-                    );
-                },
-            );
+            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(money(amount)).size(12.0).color(INK));
+            });
         });
 
         ui.add_space(7.0);
@@ -953,28 +850,17 @@ fn show_totals(
                 .color(MUTED),
         );
 
-        ui.with_layout(
-            egui::Layout::right_to_left(Align::Center),
-            |ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut state.overall_discount)
-                        .desired_width(70.0),
-                );
-            },
-        );
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut state.overall_discount).desired_width(70.0));
+        });
     });
 
     ui.add_space(8.0);
 
-    summary_row(
-        ui,
-        "Additional discount",
-        state.overall_discount_value(),
-    );
+    summary_row(ui, "Additional discount", state.overall_discount_value());
 
     summary_row(ui, "Taxable amount", state.taxable());
-    summary_row(ui, "GST",
-        state.tax());
+    summary_row(ui, "GST", state.tax());
 
     ui.add_space(4.0);
 
@@ -991,27 +877,20 @@ fn show_totals(
                         .color(PURPLE),
                 );
 
-                ui.with_layout(
-                    egui::Layout::right_to_left(Align::Center),
-                    |ui| {
-                        ui.label(
-                            RichText::new(money(state.total()))
-                                .size(21.0)
-                                .strong()
-                                .color(PURPLE_DARK),
-                        );
-                    },
-                );
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(money(state.total()))
+                            .size(21.0)
+                            .strong()
+                            .color(PURPLE_DARK),
+                    );
+                });
             });
         });
 
     ui.add_space(15.0);
 
-    section_title(
-        ui,
-        "Payment",
-        "Record the payment details for this sale.",
-    );
+    section_title(ui, "Payment", "Record the payment details for this sale.");
 
     small_label(ui, "PAYMENT MODE");
     ui.add_space(5.0);
@@ -1025,21 +904,11 @@ fn show_totals(
         )
         .width(ui.available_width())
         .show_ui(ui, |ui| {
-            for (index, mode) in [
-                "Cash",
-                "UPI",
-                "Bank transfer",
-                "Cheque",
-                "Credit",
-            ]
-            .iter()
-            .enumerate()
+            for (index, mode) in ["Cash", "UPI", "Bank transfer", "Cheque", "Credit"]
+                .iter()
+                .enumerate()
             {
-                ui.selectable_value(
-                    &mut state.payment_mode,
-                    index,
-                    *mode,
-                );
+                ui.selectable_value(&mut state.payment_mode, index, *mode);
             }
         });
 
@@ -1059,76 +928,46 @@ fn show_totals(
     let received = state.received();
 
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("Received")
-                .size(11.5)
-                .color(MUTED),
-        );
+        ui.label(RichText::new("Received").size(11.5).color(MUTED));
 
-        ui.with_layout(
-            egui::Layout::right_to_left(Align::Center),
-            |ui| {
-                ui.label(
-                    RichText::new(money(received))
-                        .size(12.0)
-                        .color(INK),
-                );
-            },
-        );
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            ui.label(RichText::new(money(received)).size(12.0).color(INK));
+        });
     });
 
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("Balance due")
-                .size(11.5)
-                .color(MUTED),
-        );
+        ui.label(RichText::new("Balance due").size(11.5).color(MUTED));
 
-        ui.with_layout(
-            egui::Layout::right_to_left(Align::Center),
-            |ui| {
-                ui.label(
-                    RichText::new(money(state.balance()))
-                        .size(12.0)
-                        .strong()
-                        .color(if state.balance() > 0.0 {
-                            AMBER
-                        } else {
-                            GREEN
-                        }),
-                );
-            },
-        );
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            ui.label(
+                RichText::new(money(state.balance()))
+                    .size(12.0)
+                    .strong()
+                    .color(if state.balance() > 0.0 { AMBER } else { GREEN }),
+            );
+        });
     });
 
     if state.change() > 0.0 {
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new("Change to return")
-                    .size(11.5)
-                    .color(MUTED),
-            );
+            ui.label(RichText::new("Change to return").size(11.5).color(MUTED));
 
-            ui.with_layout(
-                egui::Layout::right_to_left(Align::Center),
-                |ui| {
-                    ui.label(
-                        RichText::new(money(state.change()))
-                            .size(12.0)
-                            .strong()
-                            .color(GREEN),
-                    );
-                },
-            );
+            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                ui.label(
+                    RichText::new(money(state.change()))
+                        .size(12.0)
+                        .strong()
+                        .color(GREEN),
+                );
+            });
         });
     }
 }
 
 // AsterApp stores the working session date as DD/MM/YYYY, while invoice
 // records require ISO YYYY-MM-DD. Convert at the UI boundary.
-
 
 fn working_date_indian(date_text: &str) -> String {
     let parts: Vec<&str> = date_text.trim().split('/').collect();
@@ -1158,7 +997,6 @@ fn working_date_indian(date_text: &str) -> String {
     format!("{day:02}/{month:02}/{year:04}")
 }
 
-
 fn indian_date_to_iso(date_text: &str) -> Result<String, String> {
     let text = date_text.trim();
 
@@ -1172,19 +1010,19 @@ fn indian_date_to_iso(date_text: &str) -> Result<String, String> {
         return Err("Enter the date in DD/MM/YYYY format.".to_string());
     }
 
-    let day: u32 = text[0..2].parse()
-        .map_err(|_| "Invalid day.".to_string())?;
-    let month: u32 = text[3..5].parse()
+    let day: u32 = text[0..2].parse().map_err(|_| "Invalid day.".to_string())?;
+    let month: u32 = text[3..5]
+        .parse()
         .map_err(|_| "Invalid month.".to_string())?;
-    let year: u32 = text[6..10].parse()
+    let year: u32 = text[6..10]
+        .parse()
         .map_err(|_| "Invalid year.".to_string())?;
 
     if !(1..=9999).contains(&year) || !(1..=12).contains(&month) {
         return Err("Enter a valid calendar date.".to_string());
     }
 
-    let leap_year = year % 400 == 0
-        || (year % 4 == 0 && year % 100 != 0);
+    let leap_year = year % 400 == 0 || (year % 4 == 0 && year % 100 != 0);
 
     let days_in_month = match month {
         2 if leap_year => 29,
@@ -1199,7 +1037,6 @@ fn indian_date_to_iso(date_text: &str) -> Result<String, String> {
 
     Ok(format!("{year:04}-{month:02}-{day:02}"))
 }
-
 
 pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     let id = Id::new(PAGE_ID);
@@ -1241,45 +1078,36 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
             ui.add_space(3.0);
 
             ui.label(
-                RichText::new(
-                    "Create a customer bill and review its items, taxes and payment.",
-                )
-                .size(13.0)
-                .color(MUTED),
+                RichText::new("Create a customer bill and review its items, taxes and payment.")
+                    .size(13.0)
+                    .color(MUTED),
             );
         });
 
-        ui.with_layout(
-            egui::Layout::right_to_left(Align::Center),
-            |ui| {
-                let db_connected = app.db.is_some();
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            let db_connected = app.db.is_some();
 
-                egui::Frame::new()
-                    .fill(if db_connected {
-                        GREEN_BG
-                    } else {
-                        Color32::from_rgb(253, 238, 238)
-                    })
-                    .corner_radius(20.0)
-                    .inner_margin(Margin::symmetric(10, 5))
-                    .show(ui, |ui| {
-                        ui.label(
-                            RichText::new(if db_connected {
-                                "●  Database connected"
-                            } else {
-                                "●  Database unavailable"
-                            })
-                            .size(10.5)
-                            .strong()
-                            .color(if db_connected {
-                                GREEN
-                            } else {
-                                RED
-                            }),
-                        );
-                    });
-            },
-        );
+            egui::Frame::new()
+                .fill(if db_connected {
+                    GREEN_BG
+                } else {
+                    Color32::from_rgb(253, 238, 238)
+                })
+                .corner_radius(20.0)
+                .inner_margin(Margin::symmetric(10, 5))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(if db_connected {
+                            "●  Database connected"
+                        } else {
+                            "●  Database unavailable"
+                        })
+                        .size(10.5)
+                        .strong()
+                        .color(if db_connected { GREEN } else { RED }),
+                    );
+                });
+        });
     });
 
     ui.add_space(18.0);
@@ -1288,32 +1116,17 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         ui.spacing_mut().item_spacing.x = 10.0;
 
         for (label, value, color) in [
-            (
-                "ITEMS",
-                state.lines.len().to_string(),
-                PURPLE,
-            ),
-            (
-                "SUBTOTAL",
-                money(state.subtotal()),
-                INK,
-            ),
+            ("ITEMS", state.lines.len().to_string(), PURPLE),
+            ("SUBTOTAL", money(state.subtotal()), INK),
             (
                 "DISCOUNTS",
                 money(state.line_discount() + state.overall_discount_value()),
                 AMBER,
             ),
-            (
-                "TOTAL",
-                money(state.total()),
-                GREEN,
-            ),
+            ("TOTAL", money(state.total()), GREEN),
         ] {
             ui.allocate_ui_with_layout(
-                Vec2::new(
-                    (ui.available_width() / 4.0 - 8.0).max(100.0),
-                    68.0,
-                ),
+                Vec2::new((ui.available_width() / 4.0 - 8.0).max(100.0), 68.0),
                 egui::Layout::top_down(Align::Min),
                 |ui| {
                     egui::Frame::new()
@@ -1322,21 +1135,11 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                         .corner_radius(10.0)
                         .inner_margin(Margin::same(12))
                         .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(label)
-                                    .size(9.5)
-                                    .strong()
-                                    .color(SOFT),
-                            );
+                            ui.label(RichText::new(label).size(9.5).strong().color(SOFT));
 
                             ui.add_space(4.0);
 
-                            ui.label(
-                                RichText::new(value)
-                                    .size(17.0)
-                                    .strong()
-                                    .color(color),
-                            );
+                            ui.label(RichText::new(value).size(17.0).strong().color(color));
                         });
                 },
             );
@@ -1432,7 +1235,6 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                             }).collect::<Result<Vec<_>, String>>();
                             let overall_discount = if state.overall_discount.trim().is_empty() { Ok(0.0) } else { state.overall_discount.trim().parse::<f64>().map_err(|_| "Enter a valid overall discount.".to_owned()) };
                             let received = parse_money(&state.amount_received);
-                            
                             match (lines, overall_discount, received) {
                                 (Ok(lines), Ok(discount), Ok(received)) => {
                                     let payment_mode = ["Cash", "UPI", "Card", "Bank transfer", "Credit"]
@@ -1514,36 +1316,21 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     if !state.message.is_empty() {
         ui.add_space(8.0);
 
-        ui.label(
-            RichText::new(&state.message)
-                .size(11.5)
-                .color(PURPLE),
-        );
+        ui.label(RichText::new(&state.message).size(11.5).color(PURPLE));
     }
 
     ui.add_space(16.0);
 
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(format!(
-                "ASTER  ·  FY {}–{}",
-                state.year,
-                state.year + 1,
-            ))
-            .size(10.5)
-            .color(SOFT),
+            RichText::new(format!("ASTER  ·  FY {}–{}", state.year, state.year + 1,))
+                .size(10.5)
+                .color(SOFT),
         );
 
-        ui.with_layout(
-            egui::Layout::right_to_left(Align::Center),
-            |ui| {
-                ui.label(
-                    RichText::new("Amounts shown in INR")
-                        .size(10.5)
-                        .color(SOFT),
-                );
-            },
-        );
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            ui.label(RichText::new("Amounts shown in INR").size(10.5).color(SOFT));
+        });
     });
 
     ui.ctx().data_mut(|data| {

@@ -11,3 +11,4 @@ argon2 = "0.5"
 password-hash = { version = "0.5", features = ["getrandom"] }
 rusqlite = { version = "0.38", features = ["bundled"] }
 keyring = "3"
+num-format = "0.4"

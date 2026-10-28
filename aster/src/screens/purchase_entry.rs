@@ -224,7 +224,12 @@ fn money(paise: i64) -> String {
         parts.reverse();
         format!("{},{}", parts.join(","), tail)
     };
-    format!("{}₹{}.{:02}", if negative { "-" } else { "" }, grouped, frac)
+    format!(
+        "{}₹{}.{:02}",
+        if negative { "-" } else { "" },
+        grouped,
+        frac
+    )
 }
 
 fn qty_text(milli: i64) -> String {
@@ -477,13 +482,21 @@ fn line_errors(line: &LineForm, products: &[ProductRecord], invoice_ym: (i32, u3
     let mut e = LineErr::default();
     let mut first = None;
     if line.product_id == 0 || !products.iter().any(|p| p.id == line.product_id) {
-        mark(&mut e.product, &mut first, "select a product from the list.");
+        mark(
+            &mut e.product,
+            &mut first,
+            "select a product from the list.",
+        );
     }
     if line.batch_no.trim().is_empty() {
         mark(&mut e.batch, &mut first, "enter the batch number.");
     }
     match parse_expiry(&line.expiry) {
-        None => mark(&mut e.expiry, &mut first, "enter a valid expiry such as 08/27."),
+        None => mark(
+            &mut e.expiry,
+            &mut first,
+            "enter a valid expiry such as 08/27.",
+        ),
         Some(ym) if months_between(invoice_ym, ym) < 0 => {
             mark(&mut e.expiry, &mut first, "this batch is already expired.")
         }
@@ -511,7 +524,11 @@ fn line_errors(line: &LineForm, products: &[ProductRecord], invoice_ym: (i32, u3
     }
     if let (Ok(m), Ok(s)) = (mrp, sale) {
         if m > 0 && s > m {
-            mark(&mut e.sale, &mut first, "sale rate cannot be higher than MRP.");
+            mark(
+                &mut e.sale,
+                &mut first,
+                "sale rate cannot be higher than MRP.",
+            );
         }
     }
     e.first = first;
@@ -601,7 +618,12 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                         .color(PURPLE),
                 );
                 ui.add_space(2.0);
-                ui.label(RichText::new("Purchase Entry").size(26.0).strong().color(INK));
+                ui.label(
+                    RichText::new("Purchase Entry")
+                        .size(26.0)
+                        .strong()
+                        .color(INK),
+                );
                 ui.add_space(1.0);
                 ui.label(
                     RichText::new(format!(
@@ -615,7 +637,16 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if button(ui, "↻  Refresh", 104.0, 34.0, Style::Ghost, true, "pe_refresh").clicked()
+                if button(
+                    ui,
+                    "↻  Refresh",
+                    104.0,
+                    34.0,
+                    Style::Ghost,
+                    true,
+                    "pe_refresh",
+                )
+                .clicked()
                 {
                     reload(&mut s, app);
                     s.message = "Suppliers, products and recent purchases refreshed.".into();
@@ -623,7 +654,11 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                 }
                 if !wide {
                     ui.add_space(4.0);
-                    segmented(ui, &mut s.tab, &[(Tab::Entry, "New purchase"), (Tab::Recent, "Recent")]);
+                    segmented(
+                        ui,
+                        &mut s.tab,
+                        &[(Tab::Entry, "New purchase"), (Tab::Recent, "Recent")],
+                    );
                 }
             });
         });
@@ -814,7 +849,8 @@ fn invoice_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, _now: 
 
         // one reserved status line, so the layout never jumps
         ui.add_space(6.0);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 16.0), Sense::hover());
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), 16.0), Sense::hover());
         let (text, color) = invoice_note(s, app);
         paint_text(ui, rect, &text, 11.5, color, false);
     });
@@ -831,12 +867,15 @@ fn invoice_note(s: &State, app: &AsterApp) -> (String, Color32) {
     if let Some(sup) = supplier {
         let no = s.supplier_invoice_no.trim();
         if !no.is_empty()
-            && s.recent
-                .iter()
-                .any(|r| r.supplier_name == sup.name && r.supplier_invoice_no.trim().eq_ignore_ascii_case(no))
+            && s.recent.iter().any(|r| {
+                r.supplier_name == sup.name && r.supplier_invoice_no.trim().eq_ignore_ascii_case(no)
+            })
         {
             return (
-                format!("Invoice {no} from {} was already posted. Check before posting again.", sup.name),
+                format!(
+                    "Invoice {no} from {} was already posted. Check before posting again.",
+                    sup.name
+                ),
                 AMBER,
             );
         }
@@ -858,7 +897,12 @@ fn invoice_note(s: &State, app: &AsterApp) -> (String, Color32) {
     }
 }
 
-fn supplier_combo(ui: &mut egui::Ui, suppliers: &[SupplierRecord], value: &mut i64, width: f32) -> Rect {
+fn supplier_combo(
+    ui: &mut egui::Ui,
+    suppliers: &[SupplierRecord],
+    value: &mut i64,
+    width: f32,
+) -> Rect {
     let selected = suppliers
         .iter()
         .find(|x| x.id == *value)
@@ -881,21 +925,23 @@ fn supplier_combo(ui: &mut egui::Ui, suppliers: &[SupplierRecord], value: &mut i
                 te.request_focus();
             }
             let needle = filter.to_lowercase();
-            egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                for x in suppliers {
-                    let text = if x.gstin.is_empty() {
-                        x.name.clone()
-                    } else {
-                        format!("{}  ·  {}", x.name, x.gstin)
-                    };
-                    if !needle.is_empty() && !text.to_lowercase().contains(&needle) {
-                        continue;
+            egui::ScrollArea::vertical()
+                .max_height(240.0)
+                .show(ui, |ui| {
+                    for x in suppliers {
+                        let text = if x.gstin.is_empty() {
+                            x.name.clone()
+                        } else {
+                            format!("{}  ·  {}", x.name, x.gstin)
+                        };
+                        if !needle.is_empty() && !text.to_lowercase().contains(&needle) {
+                            continue;
+                        }
+                        if ui.selectable_label(*value == x.id, text).clicked() {
+                            *value = x.id;
+                        }
                     }
-                    if ui.selectable_label(*value == x.id, text).clicked() {
-                        *value = x.id;
-                    }
-                }
-            });
+                });
             ui.data_mut(|d| d.insert_temp(filter_id, filter));
         });
     let open_now = result.inner.is_some();
@@ -926,15 +972,25 @@ fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, h: f32, 
                         .color(PURPLE),
                 );
                 ui.label(
-                    RichText::new("Search a medicine, then enter batch, expiry, quantity and rates.")
-                        .size(12.0)
-                        .color(MUTED),
+                    RichText::new(
+                        "Search a medicine, then enter batch, expiry, quantity and rates.",
+                    )
+                    .size(12.0)
+                    .color(MUTED),
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if button(ui, "＋  Add item", 118.0, 34.0, Style::Primary, true, "pe_add_item")
-                    .on_hover_text("Add another line  (Ctrl+N)")
-                    .clicked()
+                if button(
+                    ui,
+                    "＋  Add item",
+                    118.0,
+                    34.0,
+                    Style::Primary,
+                    true,
+                    "pe_add_item",
+                )
+                .on_hover_text("Add another line  (Ctrl+N)")
+                .clicked()
                 {
                     s.add_line(now);
                 }
@@ -1064,7 +1120,11 @@ fn line_card(
             .fill(CANVAS)
             .stroke(Stroke::new(
                 1.0_f32,
-                if show_err { RED.gamma_multiply(0.55) } else { BORDER },
+                if show_err {
+                    RED.gamma_multiply(0.55)
+                } else {
+                    BORDER
+                },
             ))
             .corner_radius(11.0)
             .inner_margin(Margin::same(12));
@@ -1088,7 +1148,14 @@ fn line_card(
                 let mid_w = (inner_right - ui.cursor().left() - 38.0).max(200.0);
                 ui.vertical(|ui| {
                     ui.set_width(mid_w);
-                    product_search(ui, line, products, mid_w, submitted && errors.product, focus);
+                    product_search(
+                        ui,
+                        line,
+                        products,
+                        mid_w,
+                        submitted && errors.product,
+                        focus,
+                    );
                     product_meta(ui, line, products, submitted && errors.product);
                 });
             });
@@ -1097,8 +1164,11 @@ fn line_card(
             let rm = Rect::from_min_size(Pos2::new(inner_right - 28.0, top), Vec2::splat(28.0));
             let rr = ui.interact(rm, Id::new(("pe_rm", line.uid)), Sense::click());
             let hot = ctx.animate_bool_with_time(rr.id, rr.hovered(), anim(&ctx));
-            ui.painter()
-                .rect_filled(rm, 8.0, mix(Color32::TRANSPARENT, Color32::from_rgb(250, 232, 232), hot));
+            ui.painter().rect_filled(
+                rm,
+                8.0,
+                mix(Color32::TRANSPARENT, Color32::from_rgb(250, 232, 232), hot),
+            );
             ui.painter().text(
                 rm.center(),
                 egui::Align2::CENTER_CENTER,
@@ -1149,7 +1219,16 @@ fn line_card(
                             6 => &mut line.mrp,
                             _ => &mut line.sale_rate,
                         };
-                        let r = line_field(ui, id, title, value, width, hint, numeric, submitted && bad);
+                        let r = line_field(
+                            ui,
+                            id,
+                            title,
+                            value,
+                            width,
+                            hint,
+                            numeric,
+                            submitted && bad,
+                        );
                         if idx == 1 && r.changed() {
                             auto_slash(&mut line.expiry, &[2, 4]);
                         }
@@ -1201,7 +1280,7 @@ fn line_field(
     ui.vertical(|ui| {
         ui.set_width(width);
         ui.label(RichText::new(title).size(9.5).strong().color(MUTED));
-            let before = value.clone();
+        let before = value.clone();
         let response = ui.add(
             egui::TextEdit::singleline(value)
                 .id(id)
@@ -1244,7 +1323,12 @@ fn product_search(
     let rect_id = Id::new(("pe_pop_rect", line.uid));
     let hl_id = Id::new(("pe_pop_hl", line.uid));
 
-    ui.label(RichText::new("PRODUCT / MEDICINE *").size(9.5).strong().color(MUTED));
+    ui.label(
+        RichText::new("PRODUCT / MEDICINE *")
+            .size(9.5)
+            .strong()
+            .color(MUTED),
+    );
 
     if *focus == Some(pid) {
         ctx.memory_mut(|m| m.request_focus(pid));
@@ -1350,14 +1434,18 @@ fn product_search(
                             ui.add_space(4.0);
                         }
                         for (n, p) in matches.iter().enumerate() {
-                            let (r, rr) = ui.allocate_exact_size(Vec2::new(w, 42.0), Sense::click());
+                            let (r, rr) =
+                                ui.allocate_exact_size(Vec2::new(w, 42.0), Sense::click());
                             let hot = rr.hovered() || n == highlight;
                             if hot {
                                 ui.painter().rect_filled(r, 7.0, TINT);
                             }
                             paint_text(
                                 ui,
-                                Rect::from_min_size(r.min + Vec2::new(10.0, 4.0), Vec2::new(w - 20.0, 17.0)),
+                                Rect::from_min_size(
+                                    r.min + Vec2::new(10.0, 4.0),
+                                    Vec2::new(w - 20.0, 17.0),
+                                ),
                                 &p.name,
                                 13.0,
                                 INK,
@@ -1379,7 +1467,10 @@ fn product_search(
                             };
                             paint_text(
                                 ui,
-                                Rect::from_min_size(r.min + Vec2::new(10.0, 22.0), Vec2::new(w - 20.0, 15.0)),
+                                Rect::from_min_size(
+                                    r.min + Vec2::new(10.0, 22.0),
+                                    Vec2::new(w - 20.0, 15.0),
+                                ),
                                 &meta,
                                 11.0,
                                 MUTED,
@@ -1390,7 +1481,9 @@ fn product_search(
                                 highlight = n;
                             }
                             // select on press so the choice lands before the text box loses focus
-                            if rr.hovered() && ui.input(|i| i.pointer.primary_pressed()) || rr.clicked() {
+                            if rr.hovered() && ui.input(|i| i.pointer.primary_pressed())
+                                || rr.clicked()
+                            {
                                 picked = Some(*p);
                             }
                         }
@@ -1464,10 +1557,20 @@ fn line_summary(
                 kv(ui, &format!("GST {gst:.0}%"), &money(c.tax), PURPLE);
                 kv(ui, "Line total", &money(c.taxable + c.tax), PURPLE_DEEP);
                 if c.net_unit > 0.0 {
-                    kv(ui, "Net cost / unit", &money(c.net_unit.round() as i64), INK);
+                    kv(
+                        ui,
+                        "Net cost / unit",
+                        &money(c.net_unit.round() as i64),
+                        INK,
+                    );
                 }
                 if let Some(m) = c.margin {
-                    kv(ui, "Margin", &format!("{m:.1}%"), if m < 0.0 { RED } else { GREEN });
+                    kv(
+                        ui,
+                        "Margin",
+                        &format!("{m:.1}%"),
+                        if m < 0.0 { RED } else { GREEN },
+                    );
                 }
             });
 
@@ -1490,7 +1593,10 @@ fn line_summary(
                 }
             }
             if duplicate {
-                notes.push(("Same product and batch appears on another line.".into(), AMBER));
+                notes.push((
+                    "Same product and batch appears on another line.".into(),
+                    AMBER,
+                ));
             }
             let rate = parse_money(&line.rate).unwrap_or(0);
             let mrp = parse_money(&line.mrp).unwrap_or(0);
@@ -1698,13 +1804,18 @@ fn recent_panel(ui: &mut egui::Ui, s: &State, w: f32, h: f32) {
 }
 
 fn recent_row(ui: &mut egui::Ui, r: &PurchaseSummary) {
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), RECENT_ROW_H), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), RECENT_ROW_H),
+        Sense::hover(),
+    );
     let ctx = ui.ctx().clone();
     let hot = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
     if hot > 0.0 {
-        ui.painter()
-            .rect_filled(rect.shrink2(Vec2::new(-4.0, 3.0)), 8.0, TINT.gamma_multiply(hot));
+        ui.painter().rect_filled(
+            rect.shrink2(Vec2::new(-4.0, 3.0)),
+            8.0,
+            TINT.gamma_multiply(hot),
+        );
     }
     ui.painter().line_segment(
         [
@@ -1716,7 +1827,9 @@ fn recent_row(ui: &mut egui::Ui, r: &PurchaseSummary) {
     let total = money(r.total_paise);
     let total_w = 104.0;
     let left_w = rect.width() - total_w - 8.0;
-    let line = |y: f32, h: f32| Rect::from_min_size(Pos2::new(rect.left(), rect.top() + y), Vec2::new(left_w, h));
+    let line = |y: f32, h: f32| {
+        Rect::from_min_size(Pos2::new(rect.left(), rect.top() + y), Vec2::new(left_w, h))
+    };
     paint_text(ui, line(8.0, 17.0), &r.purchase_no, 13.0, INK, true);
     paint_text(ui, line(26.0, 16.0), &r.supplier_name, 12.0, MUTED, false);
     paint_text(
@@ -1744,9 +1857,9 @@ fn recent_row(ui: &mut egui::Ui, r: &PurchaseSummary) {
     } else {
         (AMBER, Color32::from_rgb(253, 242, 222))
     };
-    let galley = ui
-        .painter()
-        .layout_no_wrap(r.status.to_uppercase(), FontId::proportional(9.5), fg);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(r.status.to_uppercase(), FontId::proportional(9.5), fg);
     let pill = Rect::from_min_size(
         Pos2::new(rect.right() - galley.size().x - 14.0, rect.top() + 32.0),
         Vec2::new(galley.size().x + 14.0, 17.0),
@@ -1783,7 +1896,11 @@ fn button(
     let response = ui.interact(
         rect,
         Id::new(("pe_btn", salt)),
-        if enabled { Sense::click() } else { Sense::hover() },
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
     );
     let t = ctx.animate_bool_with_time(response.id, enabled && response.hovered(), anim(&ctx));
     let r = if enabled && response.is_pointer_button_down_on() {
@@ -1807,15 +1924,23 @@ fn button(
             if enabled { mix(INK, PURPLE, t) } else { FAINT },
         ),
         Style::Danger => (
-            mix(Color32::from_rgb(252, 240, 240), Color32::from_rgb(248, 226, 226), t),
+            mix(
+                Color32::from_rgb(252, 240, 240),
+                Color32::from_rgb(248, 226, 226),
+                t,
+            ),
             RED.gamma_multiply(0.5),
             RED,
         ),
     };
     ui.painter().rect_filled(r, 9.0, fill);
     if stroke != Color32::TRANSPARENT {
-        ui.painter()
-            .rect_stroke(r, 9.0, Stroke::new(1.0_f32, stroke), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            r,
+            9.0,
+            Stroke::new(1.0_f32, stroke),
+            egui::StrokeKind::Inside,
+        );
     }
     ui.painter().text(
         r.center(),
@@ -1836,7 +1961,8 @@ fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, value: &mut T, options: &[(
         Vec2::new(seg_w * options.len() as f32 + 6.0, 34.0),
         Sense::hover(),
     );
-    ui.painter().rect_filled(rect, 10.0, Color32::from_rgb(240, 238, 245));
+    ui.painter()
+        .rect_filled(rect, 10.0, Color32::from_rgb(240, 238, 245));
     let ctx = ui.ctx().clone();
     let index = options.iter().position(|o| o.0 == *value).unwrap_or(0) as f32;
     let x = ctx.animate_value_with_time(Id::new("pe_seg"), index, anim(&ctx) * 1.6);
@@ -1845,8 +1971,12 @@ fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, value: &mut T, options: &[(
         Vec2::new(seg_w, 28.0),
     );
     ui.painter().rect_filled(highlight, 8.0, Color32::WHITE);
-    ui.painter()
-        .rect_stroke(highlight, 8.0, Stroke::new(1.0_f32, BORDER), egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(
+        highlight,
+        8.0,
+        Stroke::new(1.0_f32, BORDER),
+        egui::StrokeKind::Inside,
+    );
     for (i, (option, text)) in options.iter().enumerate() {
         let seg = Rect::from_min_size(
             Pos2::new(rect.left() + 3.0 + i as f32 * seg_w, rect.top() + 3.0),
@@ -1941,7 +2071,8 @@ fn post(s: &mut State, app: &mut AsterApp, now: f64) {
         Ok(no) => {
             s.reset(&app.date_text, now);
             reload(s, app);
-            s.message = format!("Purchase {no} posted. Batch stock and stock movements were updated.");
+            s.message =
+                format!("Purchase {no} posted. Batch stock and stock movements were updated.");
             s.error = false;
             app.profile_message = format!("Purchase {no} posted successfully.");
         }

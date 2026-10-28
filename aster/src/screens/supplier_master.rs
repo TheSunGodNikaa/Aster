@@ -285,7 +285,9 @@ impl State {
                 match (m, p) {
                     (Ok(m), Ok(p)) => (
                         m.into_iter().collect::<BTreeSet<i64>>(),
-                        p.into_iter().map(|l| l.product_id).collect::<BTreeSet<i64>>(),
+                        p.into_iter()
+                            .map(|l| l.product_id)
+                            .collect::<BTreeSet<i64>>(),
                     ),
                     (m, p) => {
                         app.profile_message = m
@@ -330,11 +332,7 @@ fn initials(name: &str) -> String {
         .take(2)
         .collect::<String>()
         .to_uppercase();
-    if s.is_empty() {
-        "?".into()
-    } else {
-        s
-    }
+    if s.is_empty() { "?".into() } else { s }
 }
 
 fn paint_text(ui: &egui::Ui, rect: Rect, text: &str, size: f32, color: Color32, strong: bool) {
@@ -648,7 +646,12 @@ fn apply_style(ui: &mut egui::Ui) {
     }
 }
 
-fn card<R>(ui: &mut egui::Ui, width: f32, height: f32, content: impl FnOnce(&mut egui::Ui) -> R) -> R {
+fn card<R>(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
     egui::Frame::new()
         .fill(Color32::WHITE)
         .stroke(Stroke::new(1.0_f32, BORDER))
@@ -664,7 +667,11 @@ fn card<R>(ui: &mut egui::Ui, width: f32, height: f32, content: impl FnOnce(&mut
 
 // -------------------------------------------------------------------- list
 
-fn visible<'a>(rows: &'a [SupplierRecord], search: &str, filter: Filter) -> Vec<&'a SupplierRecord> {
+fn visible<'a>(
+    rows: &'a [SupplierRecord],
+    search: &str,
+    filter: Filter,
+) -> Vec<&'a SupplierRecord> {
     let needle = search.trim().to_lowercase();
     let mut out: Vec<&SupplierRecord> = rows
         .iter()
@@ -692,8 +699,17 @@ fn list_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h: f
     card(ui, w, h, |ui| {
         let shown = visible(&s.rows, &s.search, s.filter);
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Supplier directory").size(16.0).strong().color(INK));
-            ui.label(RichText::new(format!("{} shown", shown.len())).size(12.0).color(MUTED));
+            ui.label(
+                RichText::new("Supplier directory")
+                    .size(16.0)
+                    .strong()
+                    .color(INK),
+            );
+            ui.label(
+                RichText::new(format!("{} shown", shown.len()))
+                    .size(12.0)
+                    .color(MUTED),
+            );
         });
         ui.add_space(8.0);
         ui.add(
@@ -707,7 +723,11 @@ fn list_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h: f
         segmented(
             ui,
             &mut s.filter,
-            &[(Filter::Active, "Active"), (Filter::Inactive, "Inactive"), (Filter::All, "All")],
+            &[
+                (Filter::Active, "Active"),
+                (Filter::Inactive, "Inactive"),
+                (Filter::All, "All"),
+            ],
             "sm_filter",
             84.0,
         );
@@ -716,7 +736,10 @@ fn list_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h: f
         if shown.is_empty() {
             let rect = ui.available_rect_before_wrap();
             let (title, detail) = if s.rows.is_empty() {
-                ("No suppliers yet", "Fill in the form and press Save supplier.")
+                (
+                    "No suppliers yet",
+                    "Fill in the form and press Save supplier.",
+                )
             } else {
                 ("No matching suppliers", "Try a different search or filter.")
             };
@@ -767,12 +790,16 @@ fn list_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h: f
 
 fn supplier_row(ui: &mut egui::Ui, r: &SupplierRecord, selected: bool) -> bool {
     let ctx = ui.ctx().clone();
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_H), Sense::click());
     let hot = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
     let sel = ctx.animate_bool_with_time(response.id.with("sel"), selected, anim(&ctx));
     let inner = rect.shrink2(Vec2::new(0.0, 3.0));
-    ui.painter()
-        .rect_filled(inner, 10.0, mix(mix(Color32::TRANSPARENT, CANVAS, hot), TINT, sel));
+    ui.painter().rect_filled(
+        inner,
+        10.0,
+        mix(mix(Color32::TRANSPARENT, CANVAS, hot), TINT, sel),
+    );
     if sel > 0.0 {
         ui.painter().rect_filled(
             Rect::from_min_size(
@@ -785,8 +812,15 @@ fn supplier_row(ui: &mut egui::Ui, r: &SupplierRecord, selected: bool) -> bool {
     }
 
     let center = Pos2::new(inner.left() + 30.0, inner.center().y);
-    ui.painter()
-        .circle_filled(center, 18.0, if r.active { TINT } else { Color32::from_rgb(238, 236, 242) });
+    ui.painter().circle_filled(
+        center,
+        18.0,
+        if r.active {
+            TINT
+        } else {
+            Color32::from_rgb(238, 236, 242)
+        },
+    );
     ui.painter().text(
         center,
         egui::Align2::CENTER_CENTER,
@@ -800,7 +834,10 @@ fn supplier_row(ui: &mut egui::Ui, r: &SupplierRecord, selected: bool) -> bool {
     let text_w = inner.right() - right_w - text_left - 10.0;
     paint_text(
         ui,
-        Rect::from_min_size(Pos2::new(text_left, inner.top() + 9.0), Vec2::new(text_w, 18.0)),
+        Rect::from_min_size(
+            Pos2::new(text_left, inner.top() + 9.0),
+            Vec2::new(text_w, 18.0),
+        ),
         &r.name,
         13.5,
         if r.active { INK } else { MUTED },
@@ -820,7 +857,10 @@ fn supplier_row(ui: &mut egui::Ui, r: &SupplierRecord, selected: bool) -> bool {
     };
     paint_text(
         ui,
-        Rect::from_min_size(Pos2::new(text_left, inner.top() + 30.0), Vec2::new(text_w, 16.0)),
+        Rect::from_min_size(
+            Pos2::new(text_left, inner.top() + 30.0),
+            Vec2::new(text_w, 16.0),
+        ),
         &sub,
         11.5,
         MUTED,
@@ -879,18 +919,27 @@ fn editor_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h:
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    if name.is_empty() { "+".to_owned() } else { initials(name) },
+                    if name.is_empty() {
+                        "+".to_owned()
+                    } else {
+                        initials(name)
+                    },
                     FontId::proportional(14.0),
                     PURPLE,
                 );
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 1.0;
                     let title_w = (ui.available_width() - 150.0).max(100.0);
-                    let (title_rect, _) = ui.allocate_exact_size(Vec2::new(title_w, 22.0), Sense::hover());
+                    let (title_rect, _) =
+                        ui.allocate_exact_size(Vec2::new(title_w, 22.0), Sense::hover());
                     paint_text(
                         ui,
                         title_rect,
-                        if name.is_empty() { "New supplier" } else { name },
+                        if name.is_empty() {
+                            "New supplier"
+                        } else {
+                            name
+                        },
                         16.0,
                         INK,
                         true,
@@ -904,7 +953,12 @@ fn editor_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h:
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let t = ctx.animate_bool_with_time(Id::new("sm_dirty"), dirty, anim(&ctx));
                     if t > 0.0 {
-                        pill(ui, "UNSAVED CHANGES", AMBER.gamma_multiply(t), AMBER_TINT.gamma_multiply(t));
+                        pill(
+                            ui,
+                            "UNSAVED CHANGES",
+                            AMBER.gamma_multiply(t),
+                            AMBER_TINT.gamma_multiply(t),
+                        );
                     } else if editing {
                         if s.form.active {
                             pill(ui, "ACTIVE", GREEN, GREEN_TINT);
@@ -931,10 +985,14 @@ fn editor_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h:
                                     .color(AMBER),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if button(ui, "Keep editing", 104.0, 28.0, Kind::Ghost, "sm_keep").clicked() {
+                                if button(ui, "Keep editing", 104.0, 28.0, Kind::Ghost, "sm_keep")
+                                    .clicked()
+                                {
                                     s.pending = None;
                                 }
-                                if button(ui, "Discard", 84.0, 28.0, Kind::Danger, "sm_discard").clicked() {
+                                if button(ui, "Discard", 84.0, 28.0, Kind::Danger, "sm_discard")
+                                    .clicked()
+                                {
                                     match target {
                                         Some(id) => s.open(id, app, now),
                                         None => s.new_supplier(now),
@@ -1020,19 +1078,91 @@ fn details(ui: &mut egui::Ui, s: &mut State) {
     let f = &mut s.form;
 
     section(ui, "IDENTITY & CONTACT");
-    field(ui, Id::new("sm_name"), "LEGAL NAME", true, &mut f.name, full, "Registered business name", &errors.name, sub, focus, false);
+    field(
+        ui,
+        Id::new("sm_name"),
+        "LEGAL NAME",
+        true,
+        &mut f.name,
+        full,
+        "Registered business name",
+        &errors.name,
+        sub,
+        focus,
+        false,
+    );
     two(ui, [1.0, 1.0], |ui, w| {
-        field(ui, Id::new("sm_trade"), "TRADE NAME", false, &mut f.trade_name, w[0], "Name they trade under", &None, sub, focus, false);
-        field(ui, Id::new("sm_contact"), "CONTACT PERSON", false, &mut f.contact_person, w[1], "Primary contact", &None, sub, focus, false);
+        field(
+            ui,
+            Id::new("sm_trade"),
+            "TRADE NAME",
+            false,
+            &mut f.trade_name,
+            w[0],
+            "Name they trade under",
+            &None,
+            sub,
+            focus,
+            false,
+        );
+        field(
+            ui,
+            Id::new("sm_contact"),
+            "CONTACT PERSON",
+            false,
+            &mut f.contact_person,
+            w[1],
+            "Primary contact",
+            &None,
+            sub,
+            focus,
+            false,
+        );
     });
     two(ui, [1.0, 1.15], |ui, w| {
-        field(ui, Id::new("sm_phone"), "PHONE", false, &mut f.phone, w[0], "10-digit mobile", &errors.phone, sub, focus, false);
-        field(ui, Id::new("sm_email"), "EMAIL", false, &mut f.email, w[1], "name@company.com", &errors.email, sub, focus, false);
+        field(
+            ui,
+            Id::new("sm_phone"),
+            "PHONE",
+            false,
+            &mut f.phone,
+            w[0],
+            "10-digit mobile",
+            &errors.phone,
+            sub,
+            focus,
+            false,
+        );
+        field(
+            ui,
+            Id::new("sm_email"),
+            "EMAIL",
+            false,
+            &mut f.email,
+            w[1],
+            "name@company.com",
+            &errors.email,
+            sub,
+            focus,
+            false,
+        );
     });
 
     section(ui, "TAX & LICENCE");
     two(ui, [1.25, 1.0], |ui, w| {
-        let r = field(ui, Id::new("sm_gstin"), "GSTIN", false, &mut f.gstin, w[0], "33ABCDE1234F1Z5", &errors.gstin, sub, focus, false);
+        let r = field(
+            ui,
+            Id::new("sm_gstin"),
+            "GSTIN",
+            false,
+            &mut f.gstin,
+            w[0],
+            "33ABCDE1234F1Z5",
+            &errors.gstin,
+            sub,
+            focus,
+            false,
+        );
         if r.changed() {
             f.gstin = f.gstin.to_uppercase().replace(' ', "");
             f.gstin.truncate(15);
@@ -1043,40 +1173,144 @@ fn details(ui: &mut egui::Ui, s: &mut State) {
                 }
             }
         }
-        field(ui, Id::new("sm_dl"), "DRUG LICENCE NO.", false, &mut f.drug_license, w[1], "Licence reference(s)", &None, sub, focus, false);
+        field(
+            ui,
+            Id::new("sm_dl"),
+            "DRUG LICENCE NO.",
+            false,
+            &mut f.drug_license,
+            w[1],
+            "Licence reference(s)",
+            &None,
+            sub,
+            focus,
+            false,
+        );
     });
 
     section(ui, "ADDRESS");
-    field(ui, Id::new("sm_a1"), "ADDRESS LINE 1", false, &mut f.address_line1, full, "Door no., street, area", &None, sub, focus, false);
-    field(ui, Id::new("sm_a2"), "ADDRESS LINE 2", false, &mut f.address_line2, full, "Landmark / additional address", &None, sub, focus, false);
+    field(
+        ui,
+        Id::new("sm_a1"),
+        "ADDRESS LINE 1",
+        false,
+        &mut f.address_line1,
+        full,
+        "Door no., street, area",
+        &None,
+        sub,
+        focus,
+        false,
+    );
+    field(
+        ui,
+        Id::new("sm_a2"),
+        "ADDRESS LINE 2",
+        false,
+        &mut f.address_line2,
+        full,
+        "Landmark / additional address",
+        &None,
+        sub,
+        focus,
+        false,
+    );
     two(ui, [1.3, 1.0], |ui, w| {
-        field(ui, Id::new("sm_city"), "CITY", false, &mut f.city, w[0], "City / town", &None, sub, focus, false);
-        field(ui, Id::new("sm_pin"), "PIN CODE", false, &mut f.pincode, w[1], "6 digits", &errors.pincode, sub, focus, false);
+        field(
+            ui,
+            Id::new("sm_city"),
+            "CITY",
+            false,
+            &mut f.city,
+            w[0],
+            "City / town",
+            &None,
+            sub,
+            focus,
+            false,
+        );
+        field(
+            ui,
+            Id::new("sm_pin"),
+            "PIN CODE",
+            false,
+            &mut f.pincode,
+            w[1],
+            "6 digits",
+            &errors.pincode,
+            sub,
+            focus,
+            false,
+        );
     });
     state_picker(ui, f);
 
     section(ui, "CREDIT & PAYMENT TERMS");
-    two3(ui, |ui, w| {
-        let r = field(ui, Id::new("sm_days"), "TERMS (DAYS)", false, &mut f.payment_terms_days, w, "0", &errors.days, sub, focus, true);
-        if r.changed() {
-            f.payment_terms_days.retain(|c| c.is_ascii_digit());
-        }
-    }, |ui, w| {
-        let r = field(ui, Id::new("sm_credit"), "CREDIT LIMIT (₹)", false, &mut f.credit_limit, w, "0.00", &errors.credit, sub, focus, true);
-        if r.changed() {
-            f.credit_limit.retain(|c| c.is_ascii_digit() || c == '.' || c == ',');
-        }
-    }, |ui, w| {
-        let r = field(ui, Id::new("sm_open"), "OPENING BAL. (₹)", false, &mut f.opening_balance, w, "0.00", &errors.opening, sub, focus, true);
-        if r.changed() {
-            f.opening_balance
-                .retain(|c| c.is_ascii_digit() || c == '.' || c == ',' || c == '-');
-        }
-    });
+    two3(
+        ui,
+        |ui, w| {
+            let r = field(
+                ui,
+                Id::new("sm_days"),
+                "TERMS (DAYS)",
+                false,
+                &mut f.payment_terms_days,
+                w,
+                "0",
+                &errors.days,
+                sub,
+                focus,
+                true,
+            );
+            if r.changed() {
+                f.payment_terms_days.retain(|c| c.is_ascii_digit());
+            }
+        },
+        |ui, w| {
+            let r = field(
+                ui,
+                Id::new("sm_credit"),
+                "CREDIT LIMIT (₹)",
+                false,
+                &mut f.credit_limit,
+                w,
+                "0.00",
+                &errors.credit,
+                sub,
+                focus,
+                true,
+            );
+            if r.changed() {
+                f.credit_limit
+                    .retain(|c| c.is_ascii_digit() || c == '.' || c == ',');
+            }
+        },
+        |ui, w| {
+            let r = field(
+                ui,
+                Id::new("sm_open"),
+                "OPENING BAL. (₹)",
+                false,
+                &mut f.opening_balance,
+                w,
+                "0.00",
+                &errors.opening,
+                sub,
+                focus,
+                true,
+            );
+            if r.changed() {
+                f.opening_balance
+                    .retain(|c| c.is_ascii_digit() || c == '.' || c == ',' || c == '-');
+            }
+        },
+    );
     ui.label(
-        RichText::new("Opening balance: positive means you owe the supplier; negative means an advance paid.")
-            .size(11.0)
-            .color(FAINT),
+        RichText::new(
+            "Opening balance: positive means you owe the supplier; negative means an advance paid.",
+        )
+        .size(11.0)
+        .color(FAINT),
     );
     ui.add_space(10.0);
 }
@@ -1195,32 +1429,50 @@ fn state_picker(ui: &mut egui::Ui, f: &mut Form) {
                 .width(w0 - 8.0)
                 .selected_text(selected)
                 .show_ui(ui, |ui| {
-                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                        for (code, name) in STATES {
-                            if ui
-                                .selectable_label(f.state_code == *code, format!("{code}  ·  {name}"))
-                                .clicked()
-                            {
-                                f.state = (*name).to_owned();
-                                f.state_code = (*code).to_owned();
+                    egui::ScrollArea::vertical()
+                        .max_height(260.0)
+                        .show(ui, |ui| {
+                            for (code, name) in STATES {
+                                if ui
+                                    .selectable_label(
+                                        f.state_code == *code,
+                                        format!("{code}  ·  {name}"),
+                                    )
+                                    .clicked()
+                                {
+                                    f.state = (*name).to_owned();
+                                    f.state_code = (*code).to_owned();
+                                }
                             }
-                        }
-                    });
+                        });
                 });
             ui.add_space(16.0);
         });
         ui.vertical(|ui| {
             ui.set_width(w1);
             ui.spacing_mut().item_spacing.y = 3.0;
-            ui.label(RichText::new("GST STATE CODE").size(10.0).strong().color(MUTED));
+            ui.label(
+                RichText::new("GST STATE CODE")
+                    .size(10.0)
+                    .strong()
+                    .color(MUTED),
+            );
             let (rect, _) = ui.allocate_exact_size(Vec2::new(w1, 34.0), Sense::hover());
             ui.painter().rect_filled(rect, 8.0, CANVAS);
-            ui.painter()
-                .rect_stroke(rect, 8.0, Stroke::new(1.0_f32, BORDER), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(
+                rect,
+                8.0,
+                Stroke::new(1.0_f32, BORDER),
+                egui::StrokeKind::Inside,
+            );
             paint_text(
                 ui,
                 rect.shrink2(Vec2::new(10.0, 0.0)),
-                if f.state_code.is_empty() { "Auto" } else { &f.state_code },
+                if f.state_code.is_empty() {
+                    "Auto"
+                } else {
+                    &f.state_code
+                },
                 13.0,
                 if f.state_code.is_empty() { FAINT } else { INK },
                 false,
@@ -1334,13 +1586,21 @@ fn products_tab(ui: &mut egui::Ui, s: &mut State) {
                 .margin(Margin::symmetric(10, 8))
                 .desired_width(w),
         );
-        let label = if s.selected_only { "Selected only ✓" } else { "Selected only" };
+        let label = if s.selected_only {
+            "Selected only ✓"
+        } else {
+            "Selected only"
+        };
         if button(
             ui,
             label,
             124.0,
             34.0,
-            if s.selected_only { Kind::Tinted } else { Kind::Ghost },
+            if s.selected_only {
+                Kind::Tinted
+            } else {
+                Kind::Ghost
+            },
             "sm_sel_only",
         )
         .clicked()
@@ -1355,7 +1615,9 @@ fn products_tab(ui: &mut egui::Ui, s: &mut State) {
 
     let needle = s.product_filter.trim().to_lowercase();
     let selected_only = s.selected_only;
-    let State { products, prod_ids, .. } = s;
+    let State {
+        products, prod_ids, ..
+    } = s;
     let mut rows: Vec<&ProductRecord> = products
         .iter()
         .filter(|p| {
@@ -1370,7 +1632,11 @@ fn products_tab(ui: &mut egui::Ui, s: &mut State) {
 
     if rows.is_empty() {
         if products.is_empty() {
-            empty_note(ui, "No products yet", "Create products in Product Master first.");
+            empty_note(
+                ui,
+                "No products yet",
+                "Create products in Product Master first.",
+            );
         } else {
             empty_note(ui, "No matching products", "Try a different filter.");
         }
@@ -1423,15 +1689,22 @@ fn empty_note(ui: &mut egui::Ui, title: &str, detail: &str) {
 /// Painted checkbox row. Returns true when toggled.
 fn check_row(ui: &mut egui::Ui, on: &mut bool, title: &str, sub: &str, id: Id) -> bool {
     let ctx = ui.ctx().clone();
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), CHECK_ROW_H), Sense::hover());
+    let (rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), CHECK_ROW_H), Sense::hover());
     let response = ui.interact(rect, id, Sense::click());
     let hot = ctx.animate_bool_with_time(id.with("hot"), response.hovered(), anim(&ctx));
     let t = ctx.animate_bool_with_time(id.with("on"), *on, anim(&ctx));
     let inner = rect.shrink2(Vec2::new(0.0, 2.0));
-    ui.painter()
-        .rect_filled(inner, 8.0, mix(mix(Color32::TRANSPARENT, CANVAS, hot), TINT, t * 0.6));
+    ui.painter().rect_filled(
+        inner,
+        8.0,
+        mix(mix(Color32::TRANSPARENT, CANVAS, hot), TINT, t * 0.6),
+    );
 
-    let boxr = Rect::from_center_size(Pos2::new(inner.left() + 20.0, inner.center().y), Vec2::splat(18.0));
+    let boxr = Rect::from_center_size(
+        Pos2::new(inner.left() + 20.0, inner.center().y),
+        Vec2::splat(18.0),
+    );
     ui.painter()
         .rect_filled(boxr, 5.0, mix(Color32::WHITE, PURPLE, t));
     ui.painter().rect_stroke(
@@ -1495,7 +1768,11 @@ fn footer(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, now: f64) {
     let editing = s.form.id.is_some();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        let label = if editing { "Save changes" } else { "Save supplier" };
+        let label = if editing {
+            "Save changes"
+        } else {
+            "Save supplier"
+        };
         if button(ui, label, 150.0, 38.0, Kind::Primary, "sm_save")
             .on_hover_text("Save  (Ctrl+S)")
             .clicked()
@@ -1517,7 +1794,11 @@ fn footer(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, now: f64) {
                 let active = s.form.active;
                 let (label, kind) = if s.confirm_toggle {
                     (
-                        if active { "Confirm deactivate" } else { "Confirm reactivate" },
+                        if active {
+                            "Confirm deactivate"
+                        } else {
+                            "Confirm reactivate"
+                        },
                         Kind::Danger,
                     )
                 } else if active {
@@ -1552,7 +1833,14 @@ enum Kind {
     Danger,
 }
 
-fn button(ui: &mut egui::Ui, text: &str, width: f32, height: f32, kind: Kind, salt: &str) -> egui::Response {
+fn button(
+    ui: &mut egui::Ui,
+    text: &str,
+    width: f32,
+    height: f32,
+    kind: Kind,
+    salt: &str,
+) -> egui::Response {
     let ctx = ui.ctx().clone();
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     let response = ui.interact(rect, Id::new(("sm_btn", salt)), Sense::click());
@@ -1563,23 +1851,39 @@ fn button(ui: &mut egui::Ui, text: &str, width: f32, height: f32, kind: Kind, sa
         rect
     };
     let (fill, stroke, fg) = match kind {
-        Kind::Primary => (mix(PURPLE, PURPLE_DEEP, t), Color32::TRANSPARENT, Color32::WHITE),
+        Kind::Primary => (
+            mix(PURPLE, PURPLE_DEEP, t),
+            Color32::TRANSPARENT,
+            Color32::WHITE,
+        ),
         Kind::Ghost => (
             mix(Color32::WHITE, TINT, t),
             mix(BORDER_STRONG, PURPLE, t * 0.6),
             mix(INK, PURPLE, t),
         ),
-        Kind::Tinted => (mix(TINT, Color32::from_rgb(234, 228, 245), t), PURPLE.gamma_multiply(0.5), PURPLE),
+        Kind::Tinted => (
+            mix(TINT, Color32::from_rgb(234, 228, 245), t),
+            PURPLE.gamma_multiply(0.5),
+            PURPLE,
+        ),
         Kind::Danger => (
-            mix(Color32::from_rgb(252, 240, 240), Color32::from_rgb(248, 226, 226), t),
+            mix(
+                Color32::from_rgb(252, 240, 240),
+                Color32::from_rgb(248, 226, 226),
+                t,
+            ),
             RED.gamma_multiply(0.5),
             RED,
         ),
     };
     ui.painter().rect_filled(r, 9.0, fill);
     if stroke != Color32::TRANSPARENT {
-        ui.painter()
-            .rect_stroke(r, 9.0, Stroke::new(1.0_f32, stroke), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            r,
+            9.0,
+            Stroke::new(1.0_f32, stroke),
+            egui::StrokeKind::Inside,
+        );
     }
     ui.painter().text(
         r.center(),
@@ -1605,7 +1909,8 @@ fn segmented<T: Copy + PartialEq>(
         Vec2::new(seg_w * options.len() as f32 + 6.0, 36.0),
         Sense::hover(),
     );
-    ui.painter().rect_filled(rect, 10.0, Color32::from_rgb(240, 238, 245));
+    ui.painter()
+        .rect_filled(rect, 10.0, Color32::from_rgb(240, 238, 245));
     let ctx = ui.ctx().clone();
     let index = options.iter().position(|o| o.0 == *value).unwrap_or(0) as f32;
     let x = ctx.animate_value_with_time(Id::new(("sm_seg", salt)), index, anim(&ctx) * 1.6);
@@ -1614,8 +1919,12 @@ fn segmented<T: Copy + PartialEq>(
         Vec2::new(seg_w, 30.0),
     );
     ui.painter().rect_filled(highlight, 8.0, Color32::WHITE);
-    ui.painter()
-        .rect_stroke(highlight, 8.0, Stroke::new(1.0_f32, BORDER), egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(
+        highlight,
+        8.0,
+        Stroke::new(1.0_f32, BORDER),
+        egui::StrokeKind::Inside,
+    );
     for (i, (option, text)) in options.iter().enumerate() {
         let seg = Rect::from_min_size(
             Pos2::new(rect.left() + 3.0 + i as f32 * seg_w, rect.top() + 3.0),

@@ -1,7 +1,7 @@
 use crate::app::AsterApp;
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, Id, Layout, Margin, RichText,
-    ScrollArea, Sense, Stroke, Vec2,
+    self, Align, Color32, CornerRadius, Id, Layout, Margin, RichText, ScrollArea, Sense, Stroke,
+    Vec2,
 };
 
 const INK: Color32 = Color32::from_rgb(43, 39, 52);
@@ -74,15 +74,12 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         .ctx()
         .data_mut(|d| d.get_temp::<State>(state_id).unwrap_or_default());
 
-    let selected = ui.ctx().data(|d| {
-        d.get_temp::<i64>(selected_id).unwrap_or(-1)
-    });
+    let selected = ui
+        .ctx()
+        .data(|d| d.get_temp::<i64>(selected_id).unwrap_or(-1));
     state.selected = (selected > 0).then_some(selected);
 
-    if !state.loaded
-        || state.year != app.selected_year
-        || state.loaded_search != state.search
-    {
+    if !state.loaded || state.year != app.selected_year || state.loaded_search != state.search {
         state.year = app.selected_year;
         state.loaded_search = state.search.clone();
         state.loaded = true;
@@ -107,51 +104,38 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                 );
 
                 ui.label(
-                    RichText::new(
-                        "On-hand quantities, batch expiry and valuation",
-                    )
-                    .size(12.0)
-                    .color(MUTED),
+                    RichText::new("On-hand quantities, batch expiry and valuation")
+                        .size(12.0)
+                        .color(MUTED),
                 );
             });
 
-            ui.with_layout(
-                Layout::right_to_left(Align::Center),
-                |ui| {
-                    if ui.button("↻ Refresh").clicked() {
-                        reload(app, &mut state);
-                        state.loaded_search = state.search.clone();
-                        state.year = app.selected_year;
-                        state.loaded = true;
-                    }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button("↻ Refresh").clicked() {
+                    reload(app, &mut state);
+                    state.loaded_search = state.search.clone();
+                    state.year = app.selected_year;
+                    state.loaded = true;
+                }
 
-                    ui.label(
-                        RichText::new(format!(
-                            "FY {}–{}",
-                            state.year,
-                            state.year + 1
-                        ))
+                ui.label(
+                    RichText::new(format!("FY {}–{}", state.year, state.year + 1))
                         .size(12.0)
                         .color(MUTED),
-                    );
-                },
-            );
+                );
+            });
         });
 
         ui.add_space(16.0);
 
         let total_products = state.rows.len();
         let total_qty: f64 = state.rows.iter().map(|r| r.qty).sum();
-        let total_value: i64 =
-            state.rows.iter().map(|r| r.stock_value).sum();
+        let total_value: i64 = state.rows.iter().map(|r| r.stock_value).sum();
 
         let low_stock = state
             .rows
             .iter()
-            .filter(|r| {
-                r.product.reorder > 0.0
-                    && r.qty <= r.product.reorder
-            })
+            .filter(|r| r.product.reorder > 0.0 && r.qty <= r.product.reorder)
             .count();
 
         ui.columns(3, |cols| {
@@ -194,12 +178,7 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
             ui.add_space(10.0);
 
             ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new("SHOW")
-                        .size(10.0)
-                        .strong()
-                        .color(MUTED),
-                );
+                ui.label(RichText::new("SHOW").size(10.0).strong().color(MUTED));
                 ui.add_space(4.0);
 
                 for (filter, label) in [
@@ -209,10 +188,7 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                     (StockFilter::Expired, "Expired"),
                     (StockFilter::OutOfStock, "Out of stock"),
                 ] {
-                    if ui
-                        .selectable_label(state.filter == filter, label)
-                        .clicked()
-                    {
+                    if ui.selectable_label(state.filter == filter, label).clicked() {
                         state.filter = filter;
                     }
                 }
@@ -232,23 +208,19 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
 
         let detail_open = state.selected.is_some();
 
-        let slide = ui.ctx().animate_bool_with_time(
-            Id::new("stock-detail-open"),
-            detail_open,
-            0.22,
-        );
+        let slide =
+            ui.ctx()
+                .animate_bool_with_time(Id::new("stock-detail-open"), detail_open, 0.22);
 
         let available = ui.available_size();
-        let desired_detail_width =
-            (available.x * 0.36).clamp(300.0, 440.0);
+        let desired_detail_width = (available.x * 0.36).clamp(300.0, 440.0);
         let detail_width = desired_detail_width * slide;
 
         ui.horizontal_top(|ui| {
             let total_width = ui.available_width();
             let gap = if detail_open { 12.0 } else { 0.0 };
 
-            let table_width =
-                (total_width - detail_width - gap).max(300.0);
+            let table_width = (total_width - detail_width - gap).max(300.0);
 
             ui.allocate_ui_with_layout(
                 Vec2::new(table_width, available.y),
@@ -280,10 +252,7 @@ fn reload(app: &AsterApp, state: &mut State) {
         return;
     };
 
-    let records = match db.stock_batches(
-        app.selected_year,
-        &state.search,
-    ) {
+    let records = match db.stock_batches(app.selected_year, &state.search) {
         Ok(records) => records,
         Err(error) => {
             state.error = error;
@@ -320,15 +289,12 @@ fn reload(app: &AsterApp, state: &mut State) {
 
         if record.batch_id.is_some() {
             let qty = record.quantity_milli as f64 / 1000.0;
-            let free_qty =
-                record.free_quantity_milli as f64 / 1000.0;
+            let free_qty = record.free_quantity_milli as f64 / 1000.0;
 
             row.qty += qty;
             row.free_qty += free_qty;
 
-            row.stock_value +=
-                (qty * record.purchase_rate_paise as f64).round()
-                    as i64;
+            row.stock_value += (qty * record.purchase_rate_paise as f64).round() as i64;
 
             row.batches.push(Batch {
                 batch: record.batch_no.clone(),
@@ -342,13 +308,7 @@ fn reload(app: &AsterApp, state: &mut State) {
     }
 }
 
-fn metric(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &str,
-    foot: &str,
-    accent: Color32,
-) {
+fn metric(ui: &mut egui::Ui, label: &str, value: &str, foot: &str, accent: Color32) {
     egui::Frame::new()
         .fill(Color32::WHITE)
         .stroke(Stroke::new(1.0_f32, BORDER))
@@ -357,27 +317,13 @@ fn metric(
         .show(ui, |ui| {
             ui.set_min_height(82.0);
 
-            ui.label(
-                RichText::new(label)
-                    .size(10.0)
-                    .strong()
-                    .color(MUTED),
-            );
+            ui.label(RichText::new(label).size(10.0).strong().color(MUTED));
 
             ui.add_space(4.0);
 
-            ui.label(
-                RichText::new(value)
-                    .size(21.0)
-                    .strong()
-                    .color(accent),
-            );
+            ui.label(RichText::new(value).size(21.0).strong().color(accent));
 
-            ui.label(
-                RichText::new(foot)
-                    .size(10.0)
-                    .color(MUTED),
-            );
+            ui.label(RichText::new(foot).size(10.0).color(MUTED));
         });
 }
 
@@ -406,12 +352,7 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                                 Vec2::new(width, 18.0),
                                 Layout::left_to_right(Align::Center),
                                 |ui| {
-                                    ui.label(
-                                        RichText::new(label)
-                                            .size(9.0)
-                                            .strong()
-                                            .color(MUTED),
-                                    );
+                                    ui.label(RichText::new(label).size(9.0).strong().color(MUTED));
                                 },
                             );
                         }
@@ -423,35 +364,26 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
             let visible_rows: Vec<&StockRow> = state
                 .rows
                 .iter()
-                .filter(|row| {
-                    match state.filter {
-                        StockFilter::All => true,
+                .filter(|row| match state.filter {
+                    StockFilter::All => true,
 
-                        StockFilter::Low => {
-                            row.product.reorder > 0.0
-                                && row.qty <= row.product.reorder
-                        }
+                    StockFilter::Low => row.product.reorder > 0.0 && row.qty <= row.product.reorder,
 
-                        StockFilter::Expiring => {
-                            row.batches.iter().any(|batch| {
-                                let total = batch.qty + batch.free_qty;
-                                total > 0.0
-                                    && !batch.expiry.is_empty()
-                                    && batch.expiry >= today
-                                    && batch.expiry <= cutoff
-                            })
-                        }
+                    StockFilter::Expiring => row.batches.iter().any(|batch| {
+                        let total = batch.qty + batch.free_qty;
+                        total > 0.0
+                            && !batch.expiry.is_empty()
+                            && batch.expiry >= today
+                            && batch.expiry <= cutoff
+                    }),
 
-                        StockFilter::Expired => {
-                            row.batches.iter().any(|batch| {
-                                batch.qty + batch.free_qty > 0.0
-                                    && !batch.expiry.is_empty()
-                                    && batch.expiry < today
-                            })
-                        }
+                    StockFilter::Expired => row.batches.iter().any(|batch| {
+                        batch.qty + batch.free_qty > 0.0
+                            && !batch.expiry.is_empty()
+                            && batch.expiry < today
+                    }),
 
-                        StockFilter::OutOfStock => row.qty + row.free_qty <= 0.0,
-                    }
+                    StockFilter::OutOfStock => row.qty + row.free_qty <= 0.0,
                 })
                 .collect();
 
@@ -459,32 +391,25 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                 .id_salt("stock-table-scroll")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-
                     for (index, row) in visible_rows.iter().enumerate() {
                         let row = *row;
-                        let selected =
-                            state.selected == Some(row.product.id);
+                        let selected = state.selected == Some(row.product.id);
 
                         let row_width = ui.available_width();
 
-                        let (rect, response) = ui.allocate_exact_size(
-                            Vec2::new(row_width, 58.0),
-                            Sense::click(),
-                        );
+                        let (rect, response) =
+                            ui.allocate_exact_size(Vec2::new(row_width, 58.0), Sense::click());
 
                         if response.clicked() {
                             ui.ctx().data_mut(|d| {
-                                d.insert_temp(
-                                    Id::new(SELECTED_ID),
-                                    row.product.id,
-                                );
+                                d.insert_temp(Id::new(SELECTED_ID), row.product.id);
                             });
                         }
 
-                        let current_selected = ui.ctx().data(|d| {
-                            d.get_temp::<i64>(Id::new(SELECTED_ID))
-                                .unwrap_or(-1)
-                        }) == row.product.id;
+                        let current_selected = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<i64>(Id::new(SELECTED_ID)).unwrap_or(-1))
+                            == row.product.id;
 
                         let background = if selected || current_selected {
                             Color32::from_rgb(244, 240, 250)
@@ -494,11 +419,8 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                             Color32::WHITE
                         };
 
-                        ui.painter().rect_filled(
-                            rect,
-                            CornerRadius::ZERO,
-                            background,
-                        );
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::ZERO, background);
 
                         ui.painter().line_segment(
                             [rect.left_bottom(), rect.right_bottom()],
@@ -509,9 +431,7 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
 
                         let mut child = ui.new_child(
                             egui::UiBuilder::new()
-                                .max_rect(
-                                    rect.shrink2(Vec2::new(12.0, 0.0)),
-                                )
+                                .max_rect(rect.shrink2(Vec2::new(12.0, 0.0)))
                                 .layout(Layout::left_to_right(Align::Center)),
                         );
 
@@ -529,13 +449,11 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                                 );
 
                                 ui.label(
-                                    RichText::new(
-                                        if row.product.brand.is_empty() {
-                                            "—"
-                                        } else {
-                                            &row.product.brand
-                                        },
-                                    )
+                                    RichText::new(if row.product.brand.is_empty() {
+                                        "—"
+                                    } else {
+                                        &row.product.brand
+                                    })
                                     .size(10.0)
                                     .color(MUTED),
                                 );
@@ -546,8 +464,8 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                             Vec2::new(widths[1], 48.0),
                             Layout::top_down(Align::Center),
                             |ui| {
-                                let low = row.product.reorder > 0.0
-                                    && row.qty <= row.product.reorder;
+                                let low =
+                                    row.product.reorder > 0.0 && row.qty <= row.product.reorder;
 
                                 ui.label(
                                     RichText::new(format_qty(row.qty))
@@ -556,11 +474,7 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                                         .color(if low { AMBER } else { INK }),
                                 );
 
-                                ui.label(
-                                    RichText::new(&row.product.unit)
-                                        .size(9.0)
-                                        .color(MUTED),
-                                );
+                                ui.label(RichText::new(&row.product.unit).size(9.0).color(MUTED));
                             },
                         );
 
@@ -569,11 +483,9 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
                             Layout::left_to_right(Align::Center),
                             |ui| {
                                 ui.label(
-                                    RichText::new(
-                                        row.batches.len().to_string(),
-                                    )
-                                    .size(12.0)
-                                    .color(INK),
+                                    RichText::new(row.batches.len().to_string())
+                                        .size(12.0)
+                                        .color(INK),
                                 );
                             },
                         );
@@ -594,10 +506,7 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
 
                     if visible_rows.is_empty() {
                         ui.centered_and_justified(|ui| {
-                            ui.label(
-                                RichText::new("No matching stock items")
-                                    .color(MUTED),
-                            );
+                            ui.label(RichText::new("No matching stock items").color(MUTED));
                         });
                     }
                 });
@@ -607,12 +516,7 @@ fn draw_table(ui: &mut egui::Ui, state: &State) {
 fn columns(width: f32) -> [f32; 4] {
     let usable = (width - 24.0).max(280.0);
 
-    [
-        usable * 0.48,
-        usable * 0.17,
-        usable * 0.13,
-        usable * 0.22,
-    ]
+    [usable * 0.48, usable * 0.17, usable * 0.13, usable * 0.22]
 }
 
 fn draw_detail(ui: &mut egui::Ui, state: &State) {
@@ -647,57 +551,35 @@ fn draw_detail(ui: &mut egui::Ui, state: &State) {
                     );
 
                     if !row.product.brand.is_empty() {
-                        ui.label(
-                            RichText::new(&row.product.brand)
-                                .size(11.0)
-                                .color(MUTED),
-                        );
+                        ui.label(RichText::new(&row.product.brand).size(11.0).color(MUTED));
                     }
                 });
 
-                ui.with_layout(
-                    Layout::right_to_left(Align::Min),
-                    |ui| {
-                        if ui
-                            .button(RichText::new("✕").strong())
-                            .on_hover_text("Close product report")
-                            .clicked()
-                        {
-                            ui.ctx().data_mut(|d| {
-                                d.insert_temp(
-                                    Id::new(SELECTED_ID),
-                                    -1_i64,
-                                );
-                            });
-                        }
-                    },
-                );
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    if ui
+                        .button(RichText::new("✕").strong())
+                        .on_hover_text("Close product report")
+                        .clicked()
+                    {
+                        ui.ctx().data_mut(|d| {
+                            d.insert_temp(Id::new(SELECTED_ID), -1_i64);
+                        });
+                    }
+                });
             });
 
             ui.add_space(12.0);
 
             ui.columns(2, |cols| {
                 mini_stat(&mut cols[0], "ON HAND", &format_qty(row.qty));
-                mini_stat(
-                    &mut cols[1],
-                    "FREE QTY",
-                    &format_qty(row.free_qty),
-                );
+                mini_stat(&mut cols[1], "FREE QTY", &format_qty(row.free_qty));
             });
 
             ui.add_space(6.0);
 
             ui.columns(2, |cols| {
-                mini_stat(
-                    &mut cols[0],
-                    "BATCHES",
-                    &row.batches.len().to_string(),
-                );
-                mini_stat(
-                    &mut cols[1],
-                    "STOCK VALUE",
-                    &money(row.stock_value),
-                );
+                mini_stat(&mut cols[0], "BATCHES", &row.batches.len().to_string());
+                mini_stat(&mut cols[1], "STOCK VALUE", &money(row.stock_value));
             });
 
             ui.add_space(16.0);
@@ -723,40 +605,30 @@ fn draw_detail(ui: &mut egui::Ui, state: &State) {
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(format!(
-                                            "Batch {}",
-                                            batch.batch
-                                        ))
-                                        .strong()
-                                        .color(INK),
+                                        RichText::new(format!("Batch {}", batch.batch))
+                                            .strong()
+                                            .color(INK),
                                     );
 
-                                    ui.with_layout(
-                                        Layout::right_to_left(Align::Center),
-                                        |ui| {
-                                            let expiry =
-                                                expiry_label(&batch.expiry);
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        let expiry = expiry_label(&batch.expiry);
 
-                                            ui.label(
-                                                RichText::new(expiry.0)
-                                                    .size(10.0)
-                                                    .strong()
-                                                    .color(expiry.1),
-                                            );
-                                        },
-                                    );
+                                        ui.label(
+                                            RichText::new(expiry.0)
+                                                .size(10.0)
+                                                .strong()
+                                                .color(expiry.1),
+                                        );
+                                    });
                                 });
 
                                 ui.add_space(4.0);
 
                                 ui.columns(2, |cols| {
                                     cols[0].label(
-                                        RichText::new(format!(
-                                            "Qty  {}",
-                                            format_qty(batch.qty)
-                                        ))
-                                        .size(11.0)
-                                        .color(INK),
+                                        RichText::new(format!("Qty  {}", format_qty(batch.qty)))
+                                            .size(11.0)
+                                            .color(INK),
                                     );
 
                                     cols[1].label(
@@ -771,21 +643,15 @@ fn draw_detail(ui: &mut egui::Ui, state: &State) {
 
                                 ui.columns(2, |cols| {
                                     cols[0].label(
-                                        RichText::new(format!(
-                                            "MRP  {}",
-                                            money(batch.mrp)
-                                        ))
-                                        .size(10.0)
-                                        .color(MUTED),
+                                        RichText::new(format!("MRP  {}", money(batch.mrp)))
+                                            .size(10.0)
+                                            .color(MUTED),
                                     );
 
                                     cols[1].label(
-                                        RichText::new(format!(
-                                            "Sale  {}",
-                                            money(batch.sale_rate)
-                                        ))
-                                        .size(10.0)
-                                        .color(MUTED),
+                                        RichText::new(format!("Sale  {}", money(batch.sale_rate)))
+                                            .size(10.0)
+                                            .color(MUTED),
                                     );
                                 });
                             });
@@ -795,10 +661,7 @@ fn draw_detail(ui: &mut egui::Ui, state: &State) {
 
                     if row.batches.is_empty() {
                         ui.label(
-                            RichText::new(
-                                "No batches recorded for this product.",
-                            )
-                            .color(MUTED),
+                            RichText::new("No batches recorded for this product.").color(MUTED),
                         );
                     }
                 });
@@ -811,19 +674,9 @@ fn mini_stat(ui: &mut egui::Ui, label: &str, value: &str) {
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::same(9))
         .show(ui, |ui| {
-            ui.label(
-                RichText::new(label)
-                    .size(9.0)
-                    .strong()
-                    .color(MUTED),
-            );
+            ui.label(RichText::new(label).size(9.0).strong().color(MUTED));
 
-            ui.label(
-                RichText::new(value)
-                    .size(14.0)
-                    .strong()
-                    .color(INK),
-            );
+            ui.label(RichText::new(value).size(14.0).strong().color(INK));
         });
 }
 
@@ -883,4 +736,3 @@ fn days_in_month(year: i32, month: i32) -> i32 {
         _ => 30,
     }
 }
-
