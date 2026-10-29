@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::date::local_date;
 
 const CURRENT_GLOBAL_SCHEMA: i64 = 2;
-const CURRENT_YEAR_SCHEMA: i64 = 5;
+const CURRENT_YEAR_SCHEMA: i64 = 6;
 const MIN_FINANCIAL_YEAR: i32 = 1900;
 const MAX_FINANCIAL_YEAR: i32 = 9998;
 
@@ -666,6 +666,43 @@ impl Database {
                 PRAGMA user_version = 5;
                 COMMIT;"
             ).map_err(|error| format!("Apply sales invoice migration: {error}"))?;
+        }
+
+            let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| {
+                format!(
+                    "Re-read financial-year schema version: {error}"
+                )
+            })?;
+
+        if version < 6 {
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+                    ALTER TABLE sales_payments
+                        ADD COLUMN payment_date TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_payments
+                        ADD COLUMN reference_no TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_payments
+                        ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+
+                    UPDATE sales_payments
+                    SET payment_date = substr(created_at, 1, 10)
+                    WHERE payment_date = '';
+
+                    CREATE INDEX idx_sales_payments_invoice_date
+                        ON sales_payments(invoice_id, payment_date, id);
+
+                    INSERT OR IGNORE INTO schema_migrations(version)
+                        VALUES (6);
+
+                    PRAGMA user_version = 6;
+                    COMMIT;",
+                )
+                .map_err(|error| {
+                    format!("Apply payment receipt migration: {error}")
+                })?;
         }
 
         let stored_year: Option<i32> = connection
@@ -1695,6 +1732,124 @@ impl Database {
         Ok(purchase_no)
     }
 
+    pub(crate) fn record_sales_payment(
+        &self,
+        year: i32,
+        invoice_id: i64,
+        amount_paise: i64,
+        payment_mode: &str,
+        payment_date: &str,
+        reference_no: &str,
+        notes: &str,
+    ) -> Result<i64, String> {
+        if invoice_id <= 0 {
+            return Err("Select a valid invoice.".into());
+        }
+
+        if amount_paise <= 0 {
+            return Err("Payment must be greater than zero.".into());
+        }
+
+        let mode = payment_mode.trim();
+
+        if !["Cash", "UPI", "Bank transfer", "Cheque"].contains(&mode) {
+            return Err("Select a valid payment mode.".into());
+        }
+
+        let date = payment_date.trim();
+
+        if !valid_iso_date(date) {
+            return Err("Enter a valid payment date in YYYY-MM-DD format.".into());
+        }
+
+        let mut connection = self.year_connection(year)?;
+
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| format!("Start payment transaction: {e}"))?;
+
+        let invoice: Option<(i64, i64, String)> = tx
+            .query_row(
+                "SELECT total_paise, received_paise, status
+                 FROM sales_invoices
+                 WHERE id = ?1",
+                [invoice_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|e| format!("Read invoice balance: {e}"))?;
+
+        let Some((total, received, status)) = invoice else {
+            return Err("The selected invoice was not found.".into());
+        };
+
+        if status != "posted" {
+            return Err("Only posted invoices can receive payments.".into());
+        }
+
+        if total < 0 || received < 0 || received > total {
+            return Err("The invoice has an invalid payment balance.".into());
+        }
+
+        let balance = total - received;
+
+        if balance == 0 {
+            return Err("This invoice is already fully paid.".into());
+        }
+
+        if amount_paise > balance {
+            return Err(format!(
+                "Payment exceeds the outstanding balance of ₹{:.2}.",
+                balance as f64 / 100.0
+            ));
+        }
+
+        tx.execute(
+            "INSERT INTO sales_payments (
+                invoice_id,
+                amount_paise,
+                payment_mode,
+                payment_date,
+                reference_no,
+                notes
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                invoice_id,
+                amount_paise,
+                mode,
+                date,
+                reference_no.trim(),
+                notes.trim()
+            ],
+        )
+        .map_err(|e| format!("Save payment receipt: {e}"))?;
+
+        let payment_id = tx.last_insert_rowid();
+
+        let changed = tx
+            .execute(
+                "UPDATE sales_invoices
+                 SET received_paise = received_paise + ?1
+                 WHERE id = ?2
+                   AND status = 'posted'
+                   AND received_paise >= 0
+                   AND received_paise + ?1 <= total_paise",
+                params![amount_paise, invoice_id],
+            )
+            .map_err(|e| format!("Update invoice balance: {e}"))?;
+
+        if changed != 1 {
+            return Err(
+                "The invoice balance changed. Refresh the invoice and try again.".into(),
+            );
+        }
+
+        tx.commit()
+            .map_err(|e| format!("Commit payment receipt: {e}"))?;
+
+        Ok(payment_id)
+    }
+
     pub(crate) fn post_sales_invoice(
         &self,
         year: i32,
@@ -1907,11 +2062,20 @@ impl Database {
         }
         if draft.amount_received_paise > 0 {
             tx.execute(
-                "INSERT INTO sales_payments(invoice_id,amount_paise,payment_mode) VALUES(?1,?2,?3)",
+                "INSERT INTO sales_payments (
+                    invoice_id,
+                    amount_paise,
+                    payment_mode,
+                    payment_date,
+                    reference_no,
+                    notes
+                ) VALUES (?1, ?2, ?3, ?4, '', ?5)",
                 params![
                     invoice_id,
                     draft.amount_received_paise,
-                    draft.payment_mode.trim()
+                    draft.payment_mode.trim(),
+                    draft.invoice_date,
+                    draft.notes.trim()
                 ],
             )
             .map_err(|e| format!("Record invoice payment: {e}"))?;

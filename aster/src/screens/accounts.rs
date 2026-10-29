@@ -1278,44 +1278,6 @@ fn account_item(
     response.interact(Sense::click())
 }
 
-fn chart_bar(
-    ui: &mut egui::Ui,
-    label: &str,
-    amount: i64,
-    maximum: i64,
-    color: Color32,
-    account_name: &str,
-) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).size(10.5).color(MUTED));
-
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(money(amount)).size(11.0).strong().color(TEXT));
-        });
-    });
-
-    ui.add_space(6.0);
-
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 10.0), Sense::hover());
-
-    ui.painter().rect_filled(rect, CornerRadius::same(5), BG);
-
-    let target = amount.max(0) as f32 / maximum.max(1) as f32;
-
-    let animated = ui.ctx().animate_value_with_time(
-        Id::new(("aster_account_chart", account_name, label)),
-        target,
-        0.25,
-    );
-
-    let bar = egui::Rect::from_min_size(
-        rect.min,
-        Vec2::new(rect.width() * animated.clamp(0.0, 1.0_f32), rect.height()),
-    );
-
-    ui.painter().rect_filled(bar, CornerRadius::same(5), color);
-}
-
 fn legend(ui: &mut egui::Ui, color: Color32, label: &str) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(7.0), Sense::hover());

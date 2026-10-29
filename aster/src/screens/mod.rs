@@ -16,6 +16,8 @@ pub(crate) mod sales_invoice;
 
 pub(crate) mod purchase_entry;
 
+pub(crate) mod invoices;
+
 pub(crate) mod stock;
 
 pub(crate) mod accounts;

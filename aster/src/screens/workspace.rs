@@ -41,6 +41,7 @@ pub(crate) enum WorkspacePage {
     Purchase,
     Sales,
     Stock,
+    Invoices,
     Accounts,
     Reports,
     Settings,
@@ -57,6 +58,7 @@ enum NavIcon {
     Purchase,
     Sales,
     Stock,
+    Invoices,
     Accounts,
     Reports,
     Settings,
@@ -80,6 +82,7 @@ const NAV: &[(&str, &[(WorkspacePage, &str)])] = &[
             (WorkspacePage::Purchase, "Purchase"),
             (WorkspacePage::Sales, "Sales invoice"),
             (WorkspacePage::Stock, "Stock"),
+            (WorkspacePage::Invoices, "Invoices"),
         ],
     ),
     (
@@ -103,6 +106,7 @@ impl WorkspacePage {
             Self::Purchase => "Purchase",
             Self::Sales => "Sales invoice",
             Self::Stock => "Stock",
+            Self::Invoices => "Invoices",
             Self::Accounts => "Accounts",
             Self::Reports => "Reports",
             Self::Settings => "System settings",
@@ -120,6 +124,7 @@ impl WorkspacePage {
             Self::Purchase => NavIcon::Purchase,
             Self::Sales => NavIcon::Sales,
             Self::Stock => NavIcon::Stock,
+            Self::Invoices => NavIcon::Invoices,
             Self::Accounts => NavIcon::Accounts,
             Self::Reports => NavIcon::Reports,
             Self::Settings => NavIcon::Settings,
@@ -423,6 +428,7 @@ impl AsterApp {
                         | WorkspacePage::Sales
                         | WorkspacePage::Stock
                         | WorkspacePage::Accounts
+                        | WorkspacePage::Invoices
                 ) {
                     // Master pages manage their own bounded list/editor scroll areas.
                     // Avoid an outer ScrollArea so the two panels scroll independently.
@@ -437,6 +443,7 @@ impl AsterApp {
                                 WorkspacePage::Suppliers => super::supplier_master::show(ui, self),
                                 WorkspacePage::Purchase => super::purchase_entry::show(ui, self),
                                 WorkspacePage::Sales => super::sales_invoice::show(ui, self),
+                                WorkspacePage::Invoices => super::invoices::show(ui, self),
                                 WorkspacePage::Stock => super::stock::show(ui, self),
                                 WorkspacePage::Accounts => super::accounts::show(ui, self),
                                 _ => {}
@@ -902,6 +909,17 @@ fn draw_icon(painter: &egui::Painter, center: Pos2, icon: NavIcon, color: Color3
             line(Vec2::new(-6.0, 6.0), Vec2::new(-4.0, 2.0));
             line(Vec2::new(-4.0, 2.0), Vec2::new(4.0, 2.0));
             line(Vec2::new(4.0, 2.0), Vec2::new(6.0, 6.0));
+        }
+        NavIcon::Invoices => {
+            painter.rect_stroke(
+                Rect::from_center_size(center, Vec2::new(13.0, 12.0)),
+                1.5,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            line(Vec2::new(-3.0, -3.0), Vec2::new(3.0, -3.0));
+            line(Vec2::new(-3.0, 0.0), Vec2::new(3.0, 0.0));
+            line(Vec2::new(-3.0, 3.0), Vec2::new(1.0, 3.0));
         }
         NavIcon::Truck => {
             painter.rect_stroke(
