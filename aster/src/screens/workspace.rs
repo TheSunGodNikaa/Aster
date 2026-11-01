@@ -429,6 +429,7 @@ impl AsterApp {
                         | WorkspacePage::Stock
                         | WorkspacePage::Accounts
                         | WorkspacePage::Invoices
+                        | WorkspacePage::Reports
                 ) {
                     // Master pages manage their own bounded list/editor scroll areas.
                     // Avoid an outer ScrollArea so the two panels scroll independently.
@@ -446,6 +447,7 @@ impl AsterApp {
                                 WorkspacePage::Invoices => super::invoices::show(ui, self),
                                 WorkspacePage::Stock => super::stock::show(ui, self),
                                 WorkspacePage::Accounts => super::accounts::show(ui, self),
+                                WorkspacePage::Reports => super::reports::show(ui, self),
                                 _ => {}
                             },
                         );
