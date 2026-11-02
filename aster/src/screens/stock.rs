@@ -343,7 +343,12 @@ fn draw_header(ui: &mut Ui, app: &AsterApp, state: &mut State) {
                     .color(PURPLE),
             );
             ui.add_space(2.0);
-            ui.label(RichText::new("Stock Overview").size(28.0).strong().color(TEXT));
+            ui.label(
+                RichText::new("Stock Overview")
+                    .size(28.0)
+                    .strong()
+                    .color(TEXT),
+            );
             ui.add_space(2.0);
             ui.label(
                 RichText::new("On-hand quantities, batch expiry and valuation")
@@ -501,7 +506,11 @@ struct Seg {
 fn health_card(ui: &mut Ui, state: &mut State, today: i64) {
     card(ui, |ui| {
         ui.set_min_height(250.0);
-        section_title(ui, "Stock health", "Products by condition · click to filter");
+        section_title(
+            ui,
+            "Stock health",
+            "Products by condition · click to filter",
+        );
         ui.add_space(12.0);
 
         let mut counts = [0_usize; 5];
@@ -517,11 +526,36 @@ fn health_card(ui: &mut Ui, state: &mut State, today: i64) {
         }
 
         let segs = [
-            Seg { label: "Healthy", count: counts[0], color: GREEN, filter: StockFilter::Healthy },
-            Seg { label: "Low stock", count: counts[1], color: AMBER, filter: StockFilter::Low },
-            Seg { label: "Expiring soon", count: counts[2], color: YELLOW, filter: StockFilter::Expiring },
-            Seg { label: "Expired", count: counts[3], color: RED, filter: StockFilter::Expired },
-            Seg { label: "Out of stock", count: counts[4], color: GRAY, filter: StockFilter::OutOfStock },
+            Seg {
+                label: "Healthy",
+                count: counts[0],
+                color: GREEN,
+                filter: StockFilter::Healthy,
+            },
+            Seg {
+                label: "Low stock",
+                count: counts[1],
+                color: AMBER,
+                filter: StockFilter::Low,
+            },
+            Seg {
+                label: "Expiring soon",
+                count: counts[2],
+                color: YELLOW,
+                filter: StockFilter::Expiring,
+            },
+            Seg {
+                label: "Expired",
+                count: counts[3],
+                color: RED,
+                filter: StockFilter::Expired,
+            },
+            Seg {
+                label: "Out of stock",
+                count: counts[4],
+                color: GRAY,
+                filter: StockFilter::OutOfStock,
+            },
         ];
         let total: usize = counts.iter().sum();
 
@@ -577,7 +611,11 @@ fn top_value_card(ui: &mut Ui, state: &mut State) {
 
         if rows.is_empty() {
             ui.add_space(40.0);
-            empty(ui, "No stock value yet", "Received batches will appear here.");
+            empty(
+                ui,
+                "No stock value yet",
+                "Received batches will appear here.",
+            );
             return;
         }
 
@@ -610,14 +648,19 @@ fn top_value_card(ui: &mut Ui, state: &mut State) {
             });
             let (rect, _) =
                 ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
             ui.painter().rect_filled(
                 Rect::from_min_size(
                     rect.min,
                     Vec2::new(rect.width() * (*value as f32 / max as f32), rect.height()),
                 ),
                 CornerRadius::same(4),
-                if selected { PURPLE } else { Color32::from_rgb(140, 110, 190) },
+                if selected {
+                    PURPLE
+                } else {
+                    Color32::from_rgb(140, 110, 190)
+                },
             );
             ui.add_space(5.0);
         }
@@ -646,7 +689,15 @@ fn expiry_card(ui: &mut Ui, state: &State, today: i64) {
             "180+ days",
             "No expiry",
         ];
-        let colors = [RED, AMBER, YELLOW, Color32::from_rgb(120, 150, 60), SOFT_GREEN, GREEN, GRAY];
+        let colors = [
+            RED,
+            AMBER,
+            YELLOW,
+            Color32::from_rgb(120, 150, 60),
+            SOFT_GREEN,
+            GREEN,
+            GRAY,
+        ];
 
         let mut value = [0_i64; 7];
         let mut units = [0.0_f64; 7];
@@ -663,7 +714,11 @@ fn expiry_card(ui: &mut Ui, state: &State, today: i64) {
 
         if batches.iter().sum::<usize>() == 0 {
             ui.add_space(30.0);
-            empty(ui, "No batches on hand", "Expiry exposure will appear once stock is received.");
+            empty(
+                ui,
+                "No batches on hand",
+                "Expiry exposure will appear once stock is received.",
+            );
             return;
         }
 
@@ -724,7 +779,12 @@ fn expiry_card(ui: &mut Ui, state: &State, today: i64) {
                         Pos2::new(cx - bar_w / 2.0, plot.bottom() - h),
                         Pos2::new(cx + bar_w / 2.0, plot.bottom()),
                     ),
-                    CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 },
+                    CornerRadius {
+                        nw: 5,
+                        ne: 5,
+                        sw: 0,
+                        se: 0,
+                    },
                     colors[i],
                 );
                 painter.text(
@@ -747,7 +807,12 @@ fn expiry_card(ui: &mut Ui, state: &State, today: i64) {
 
         if let Some(i) = hovered {
             resp.on_hover_ui_at_pointer(|ui| {
-                ui.label(RichText::new(LABELS[i]).size(14.0).strong().color(colors[i]));
+                ui.label(
+                    RichText::new(LABELS[i])
+                        .size(14.0)
+                        .strong()
+                        .color(colors[i]),
+                );
                 ui.label(RichText::new(format!("Batches: {}", batches[i])).size(13.0));
                 ui.label(RichText::new(format!("Units: {}", format_qty(units[i]))).size(13.0));
                 ui.label(
@@ -882,7 +947,9 @@ fn draw_register(ui: &mut Ui, state: &mut State, today: i64) {
                     .partial_cmp(&b.total_qty())
                     .unwrap_or(std::cmp::Ordering::Equal)
             }),
-            SortBy::Expiry => view.sort_by_key(|r| r.next_expiry(today).map_or(i64::MAX, |(_, d)| d)),
+            SortBy::Expiry => {
+                view.sort_by_key(|r| r.next_expiry(today).map_or(i64::MAX, |(_, d)| d))
+            }
         }
 
         if view.is_empty() {
@@ -906,7 +973,12 @@ fn draw_register(ui: &mut Ui, state: &mut State, today: i64) {
 
         egui::Frame::new()
             .fill(HEADER_BG)
-            .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
+            .corner_radius(CornerRadius {
+                nw: 8,
+                ne: 8,
+                sw: 0,
+                se: 0,
+            })
             .inner_margin(Margin::symmetric(12, 4))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -934,7 +1006,12 @@ fn draw_register(ui: &mut Ui, state: &mut State, today: i64) {
 
         egui::Frame::new()
             .stroke(Stroke::new(1.0_f32, BORDER))
-            .corner_radius(CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 })
+            .corner_radius(CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: 8,
+                se: 8,
+            })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ScrollArea::vertical()
@@ -1006,7 +1083,11 @@ fn draw_register(ui: &mut Ui, state: &mut State, today: i64) {
         });
 
         if let Some(id) = clicked {
-            state.selected = if state.selected == Some(id) { None } else { Some(id) };
+            state.selected = if state.selected == Some(id) {
+                None
+            } else {
+                Some(id)
+            };
         }
     });
 }
@@ -1018,7 +1099,10 @@ fn stock_row(ui: &mut Ui, row: &StockRow, today: i64, w: &[f32; 6]) {
     cell(ui, w[0], 54.0, Align::Min, |ui| {
         ui.add(
             egui::Label::new(
-                RichText::new(&row.product.name).size(14.0).strong().color(TEXT),
+                RichText::new(&row.product.name)
+                    .size(14.0)
+                    .strong()
+                    .color(TEXT),
             )
             .truncate(),
         );
@@ -1042,14 +1126,10 @@ fn stock_row(ui: &mut Ui, row: &StockRow, today: i64, w: &[f32; 6]) {
 
     cell(ui, w[2], 54.0, Align::Max, |ui| {
         ui.label(
-            RichText::new(format!(
-                "{} {}",
-                format_qty(row.qty),
-                row.product.unit
-            ))
-            .size(14.0)
-            .strong()
-            .color(if row.is_low() { AMBER } else { TEXT }),
+            RichText::new(format!("{} {}", format_qty(row.qty), row.product.unit))
+                .size(14.0)
+                .strong()
+                .color(if row.is_low() { AMBER } else { TEXT }),
         );
         if row.product.reorder > 0.0 {
             ui.label(
@@ -1061,22 +1141,38 @@ fn stock_row(ui: &mut Ui, row: &StockRow, today: i64, w: &[f32; 6]) {
     });
 
     cell(ui, w[3], 54.0, Align::Max, |ui| {
-        ui.label(RichText::new(row.batches.len().to_string()).size(14.0).color(TEXT));
+        ui.label(
+            RichText::new(row.batches.len().to_string())
+                .size(14.0)
+                .color(TEXT),
+        );
     });
 
-    cell(ui, w[4], 54.0, Align::Max, |ui| match row.next_expiry(today) {
-        Some((date, days)) => {
-            let (color, _) = expiry_tone(days);
-            ui.label(RichText::new(date).size(13.5).color(TEXT));
-            ui.label(RichText::new(expiry_text(days)).size(12.0).strong().color(color));
-        }
-        None => {
-            ui.label(RichText::new("—").size(14.0).color(MUTED));
+    cell(ui, w[4], 54.0, Align::Max, |ui| {
+        match row.next_expiry(today) {
+            Some((date, days)) => {
+                let (color, _) = expiry_tone(days);
+                ui.label(RichText::new(date).size(13.5).color(TEXT));
+                ui.label(
+                    RichText::new(expiry_text(days))
+                        .size(12.0)
+                        .strong()
+                        .color(color),
+                );
+            }
+            None => {
+                ui.label(RichText::new("—").size(14.0).color(MUTED));
+            }
         }
     });
 
     cell(ui, w[5], 54.0, Align::Max, |ui| {
-        ui.label(RichText::new(money(row.stock_value)).size(14.0).strong().color(TEXT));
+        ui.label(
+            RichText::new(money(row.stock_value))
+                .size(14.0)
+                .strong()
+                .color(TEXT),
+        );
     });
 }
 
@@ -1096,7 +1192,12 @@ fn draw_detail(ui: &mut Ui, state: &mut State, today: i64) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(caps("PRODUCT REPORT"));
-                ui.label(RichText::new(&row.product.name).size(20.0).strong().color(TEXT));
+                ui.label(
+                    RichText::new(&row.product.name)
+                        .size(20.0)
+                        .strong()
+                        .color(TEXT),
+                );
                 if !row.product.brand.is_empty() {
                     ui.label(RichText::new(&row.product.brand).size(13.5).color(MUTED));
                 }
@@ -1116,12 +1217,22 @@ fn draw_detail(ui: &mut Ui, state: &mut State, today: i64) {
 
         ui.add_space(14.0);
         ui.columns(2, |cols| {
-            mini_stat(&mut cols[0], "ON HAND", &format!("{} {}", format_qty(row.qty), row.product.unit), TEXT);
+            mini_stat(
+                &mut cols[0],
+                "ON HAND",
+                &format!("{} {}", format_qty(row.qty), row.product.unit),
+                TEXT,
+            );
             mini_stat(&mut cols[1], "FREE QTY", &format_qty(row.free_qty), TEXT);
         });
         ui.add_space(4.0);
         ui.columns(2, |cols| {
-            mini_stat(&mut cols[0], "BATCHES", &row.batches.len().to_string(), TEXT);
+            mini_stat(
+                &mut cols[0],
+                "BATCHES",
+                &row.batches.len().to_string(),
+                TEXT,
+            );
             mini_stat(&mut cols[1], "STOCK VALUE", &money(row.stock_value), PURPLE);
         });
 
@@ -1132,7 +1243,8 @@ fn draw_detail(ui: &mut Ui, state: &mut State, today: i64) {
             let cap = (row.product.reorder * 2.0).max(row.qty).max(1.0);
             let (rect, _) =
                 ui.allocate_exact_size(Vec2::new(ui.available_width(), 12.0), Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same(6), PURPLE_BG);
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(6), PURPLE_BG);
             ui.painter().rect_filled(
                 Rect::from_min_size(
                     rect.min,
@@ -1143,7 +1255,10 @@ fn draw_detail(ui: &mut Ui, state: &mut State, today: i64) {
             );
             let marker_x = rect.left() + rect.width() * (row.product.reorder / cap) as f32;
             ui.painter().line_segment(
-                [Pos2::new(marker_x, rect.top() - 3.0), Pos2::new(marker_x, rect.bottom() + 3.0)],
+                [
+                    Pos2::new(marker_x, rect.top() - 3.0),
+                    Pos2::new(marker_x, rect.bottom() + 3.0),
+                ],
                 Stroke::new(2.0_f32, TEXT),
             );
             ui.label(
@@ -1164,7 +1279,11 @@ fn draw_detail(ui: &mut Ui, state: &mut State, today: i64) {
         ui.add_space(6.0);
 
         if row.batches.is_empty() {
-            empty(ui, "No batches recorded", "Receive stock to create batches.");
+            empty(
+                ui,
+                "No batches recorded",
+                "Receive stock to create batches.",
+            );
             return;
         }
 
@@ -1227,7 +1346,8 @@ fn draw_detail(ui: &mut Ui, state: &mut State, today: i64) {
                                 Vec2::new(ui.available_width(), 8.0),
                                 Sense::hover(),
                             );
-                            ui.painter().rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
+                            ui.painter()
+                                .rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
                             ui.painter().rect_filled(
                                 Rect::from_min_size(
                                     rect.min,
@@ -1300,7 +1420,14 @@ fn arc_points(center: Pos2, radius: f32, a0: f32, a1: f32) -> Vec<Pos2> {
         .collect()
 }
 
-fn donut(ui: &mut Ui, rect: Rect, resp: &Response, segs: &[Seg], center_top: &str, center_bottom: &str) {
+fn donut(
+    ui: &mut Ui,
+    rect: Rect,
+    resp: &Response,
+    segs: &[Seg],
+    center_top: &str,
+    center_bottom: &str,
+) {
     let painter = ui.painter_at(rect.expand(6.0));
     let center = rect.center();
     let thickness = 24.0_f32;
@@ -1339,11 +1466,16 @@ fn donut(ui: &mut Ui, rect: Rect, resp: &Response, segs: &[Seg], center_top: &st
                 continue;
             }
             let sweep = seg.count as f32 / total * TAU;
-            let width = if hovered == Some(i) { thickness + 5.0 } else { thickness };
+            let width = if hovered == Some(i) {
+                thickness + 5.0
+            } else {
+                thickness
+            };
             if nonzero == 1 {
                 painter.circle_stroke(center, radius, Stroke::new(width, seg.color));
             } else {
-                let points = arc_points(center, radius, start + gap / 2.0, start + sweep - gap / 2.0);
+                let points =
+                    arc_points(center, radius, start + gap / 2.0, start + sweep - gap / 2.0);
                 painter.add(Shape::line(points, Stroke::new(width, seg.color)));
             }
             start += sweep;
@@ -1395,9 +1527,15 @@ fn apply_style(ui: &mut Ui) {
     let style = ui.style_mut();
     style.spacing.item_spacing = Vec2::new(12.0, 8.0);
     style.spacing.button_padding = Vec2::new(12.0, 6.0);
-    style.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));
-    style.text_styles.insert(TextStyle::Button, FontId::proportional(14.0));
-    style.text_styles.insert(TextStyle::Small, FontId::proportional(12.0));
+    style
+        .text_styles
+        .insert(TextStyle::Body, FontId::proportional(14.0));
+    style
+        .text_styles
+        .insert(TextStyle::Button, FontId::proportional(14.0));
+    style
+        .text_styles
+        .insert(TextStyle::Small, FontId::proportional(12.0));
 }
 
 fn caps(text: &str) -> RichText {
@@ -1463,12 +1601,11 @@ fn badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) {
 
 fn chip(ui: &mut Ui, label: &str, selected: bool) -> bool {
     ui.add(
-        egui::Button::new(
-            RichText::new(label)
-                .size(13.0)
-                .strong()
-                .color(if selected { PURPLE } else { MUTED }),
-        )
+        egui::Button::new(RichText::new(label).size(13.0).strong().color(if selected {
+            PURPLE
+        } else {
+            MUTED
+        }))
         .fill(if selected { PURPLE_BG } else { CARD })
         .stroke(Stroke::new(1.0_f32, if selected { PURPLE } else { BORDER }))
         .corner_radius(CornerRadius::same(16))

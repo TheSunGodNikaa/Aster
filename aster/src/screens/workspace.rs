@@ -419,7 +419,8 @@ impl AsterApp {
                 let width = available.min(CONTENT_MAX_WIDTH);
                 let pad = ((available - width) / 2.0).max(0.0);
 
-                if matches!(
+                // Pages that manage their own bounded list/editor scrolling.
+                let own_scroll = matches!(
                     self.workspace_page,
                     WorkspacePage::Products
                         | WorkspacePage::Customers
@@ -429,31 +430,20 @@ impl AsterApp {
                         | WorkspacePage::Stock
                         | WorkspacePage::Accounts
                         | WorkspacePage::Invoices
-                        | WorkspacePage::Reports
-                ) {
-                    // Master pages manage their own bounded list/editor scroll areas.
-                    // Avoid an outer ScrollArea so the two panels scroll independently.
+                );
+
+                if own_scroll {
                     ui.horizontal_top(|ui| {
                         ui.add_space(pad);
                         ui.allocate_ui_with_layout(
                             Vec2::new(width, ui.available_height()),
                             egui::Layout::top_down(Align::Min),
-                            |ui| match self.workspace_page {
-                                WorkspacePage::Products => super::product_master::show(ui, self),
-                                WorkspacePage::Customers => super::customer_master::show(ui, self),
-                                WorkspacePage::Suppliers => super::supplier_master::show(ui, self),
-                                WorkspacePage::Purchase => super::purchase_entry::show(ui, self),
-                                WorkspacePage::Sales => super::sales_invoice::show(ui, self),
-                                WorkspacePage::Invoices => super::invoices::show(ui, self),
-                                WorkspacePage::Stock => super::stock::show(ui, self),
-                                WorkspacePage::Accounts => super::accounts::show(ui, self),
-                                WorkspacePage::Reports => super::reports::show(ui, self),
-                                _ => {}
-                            },
+                            |ui| show_page(ui, self),
                         );
                     });
                 } else {
                     egui::ScrollArea::vertical()
+                        .id_salt("aster_workspace_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.horizontal_top(|ui| {
@@ -462,29 +452,7 @@ impl AsterApp {
                                     Vec2::new(width, 0.0),
                                     egui::Layout::top_down(Align::Min),
                                     |ui| {
-                                        match self.workspace_page {
-                                            WorkspacePage::Dashboard => show_dashboard(ui, self),
-                                            WorkspacePage::UserPreferences => {
-                                                show_user_preferences(ui, self)
-                                            }
-                                            WorkspacePage::Company => {
-                                                super::company_settings::show(ui, self)
-                                            }
-                                            WorkspacePage::Customers => {
-                                                super::customer_master::show(ui, self)
-                                            }
-                                            WorkspacePage::Suppliers => {
-                                                super::supplier_master::show(ui, self)
-                                            }
-                                            WorkspacePage::Purchase => {
-                                                super::purchase_entry::show(ui, self)
-                                            }
-                                            WorkspacePage::Sales => {
-                                                super::sales_invoice::show(ui, self)
-                                            }
-                                            WorkspacePage::Stock => super::stock::show(ui, self),
-                                            page => show_module_intro(ui, page),
-                                        }
+                                        show_page(ui, self);
                                         ui.add_space(24.0);
                                     },
                                 );
@@ -494,6 +462,24 @@ impl AsterApp {
             });
 
         show_toast(ctx, self);
+    }
+}
+
+fn show_page(ui: &mut egui::Ui, app: &mut AsterApp) {
+    match app.workspace_page {
+        WorkspacePage::Dashboard => show_dashboard(ui, app),
+        WorkspacePage::UserPreferences => show_user_preferences(ui, app),
+        WorkspacePage::Company => super::company_settings::show(ui, app),
+        WorkspacePage::Customers => super::customer_master::show(ui, app),
+        WorkspacePage::Suppliers => super::supplier_master::show(ui, app),
+        WorkspacePage::Products => super::product_master::show(ui, app),
+        WorkspacePage::Purchase => super::purchase_entry::show(ui, app),
+        WorkspacePage::Sales => super::sales_invoice::show(ui, app),
+        WorkspacePage::Stock => super::stock::show(ui, app),
+        WorkspacePage::Invoices => super::invoices::show(ui, app),
+        WorkspacePage::Accounts => super::accounts::show(ui, app),
+        WorkspacePage::Reports => super::reports::show(ui, app),
+        WorkspacePage::Settings => super::settings::show(ui, app),
     }
 }
 
@@ -2048,6 +2034,7 @@ fn show_toast(ctx: &egui::Context, app: &mut AsterApp) {
 
 // -------------------------------------------------------------- placeholder
 
+#[allow(dead_code)]
 fn show_module_intro(ui: &mut egui::Ui, page: WorkspacePage) {
     page_header(ui, "WORKSPACE", page.title(), "");
     let width = ui.available_width();

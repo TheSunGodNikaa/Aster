@@ -207,9 +207,7 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(&state.error).size(13.5).strong().color(RED),
-                            );
+                            ui.label(RichText::new(&state.error).size(13.5).strong().color(RED));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui.button("Retry").clicked() {
                                     retry = true;
@@ -281,7 +279,13 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
 
             // KPI row
             ui.columns(4, |cols| {
-                metric(&mut cols[0], "INVOICED", &money(st.total), "Posted invoice value", PURPLE);
+                metric(
+                    &mut cols[0],
+                    "INVOICED",
+                    &money(st.total),
+                    "Posted invoice value",
+                    PURPLE,
+                );
                 metric(
                     &mut cols[1],
                     "COLLECTED",
@@ -426,7 +430,12 @@ fn header(ui: &mut Ui, app: &AsterApp, state: &mut State) {
                     .color(PURPLE),
             );
             ui.add_space(2.0);
-            ui.label(RichText::new("Invoice Management").size(28.0).strong().color(TEXT));
+            ui.label(
+                RichText::new("Invoice Management")
+                    .size(28.0)
+                    .strong()
+                    .color(TEXT),
+            );
             ui.add_space(2.0);
             ui.label(
                 RichText::new("Track balances, record collections and review receipts.")
@@ -468,13 +477,32 @@ fn header(ui: &mut Ui, app: &AsterApp, state: &mut State) {
 fn donut_card(ui: &mut Ui, state: &mut State, st: &Stats) {
     card(ui, |ui| {
         ui.set_min_height(250.0);
-        section_title(ui, "Payment status", "Invoices by collection state · click to filter");
+        section_title(
+            ui,
+            "Payment status",
+            "Invoices by collection state · click to filter",
+        );
         ui.add_space(12.0);
 
         let segs = [
-            Seg { label: "Paid", value: st.paid as f32, color: GREEN, filter: Filter::Paid },
-            Seg { label: "Partial", value: st.partial as f32, color: ORANGE, filter: Filter::Partial },
-            Seg { label: "Unpaid", value: st.unpaid as f32, color: RED, filter: Filter::Unpaid },
+            Seg {
+                label: "Paid",
+                value: st.paid as f32,
+                color: GREEN,
+                filter: Filter::Paid,
+            },
+            Seg {
+                label: "Partial",
+                value: st.partial as f32,
+                color: ORANGE,
+                filter: Filter::Partial,
+            },
+            Seg {
+                label: "Unpaid",
+                value: st.unpaid as f32,
+                color: RED,
+                filter: Filter::Unpaid,
+            },
         ];
         let count = st.paid + st.partial + st.unpaid;
 
@@ -488,10 +516,8 @@ fn donut_card(ui: &mut Ui, state: &mut State, st: &Stats) {
                     ui.horizontal(|ui| {
                         dot(ui, seg.color);
                         let r = ui.add(
-                            egui::Button::new(
-                                RichText::new(seg.label).size(14.0).color(TEXT),
-                            )
-                            .frame(false),
+                            egui::Button::new(RichText::new(seg.label).size(14.0).color(TEXT))
+                                .frame(false),
                         );
                         if r.on_hover_text("Filter the register").clicked() {
                             state.filter = seg.filter;
@@ -516,7 +542,8 @@ fn donut_card(ui: &mut Ui, state: &mut State, st: &Stats) {
                 );
                 let (rect, _) =
                     ui.allocate_exact_size(Vec2::new(ui.available_width(), 10.0), Sense::hover());
-                ui.painter().rect_filled(rect, CornerRadius::same(5), PURPLE_BG);
+                ui.painter()
+                    .rect_filled(rect, CornerRadius::same(5), PURPLE_BG);
                 if st.total > 0 {
                     let w = rect.width() * (st.received as f32 / st.total as f32).clamp(0.0, 1.0);
                     ui.painter().rect_filled(
@@ -533,7 +560,11 @@ fn donut_card(ui: &mut Ui, state: &mut State, st: &Stats) {
 fn top_customers_card(ui: &mut Ui, state: &mut State, scoped: &[Invoice]) {
     card(ui, |ui| {
         ui.set_min_height(250.0);
-        section_title(ui, "Top outstanding customers", "Click a customer to focus the whole page");
+        section_title(
+            ui,
+            "Top outstanding customers",
+            "Click a customer to focus the whole page",
+        );
         ui.add_space(12.0);
 
         let mut by: BTreeMap<String, i64> = BTreeMap::new();
@@ -555,7 +586,11 @@ fn top_customers_card(ui: &mut Ui, state: &mut State, scoped: &[Invoice]) {
                         .strong()
                         .color(GREEN),
                 );
-                ui.label(RichText::new("No balances pending.").size(12.5).color(MUTED));
+                ui.label(
+                    RichText::new("No balances pending.")
+                        .size(12.5)
+                        .color(MUTED),
+                );
             });
             return;
         }
@@ -564,23 +599,27 @@ fn top_customers_card(ui: &mut Ui, state: &mut State, scoped: &[Invoice]) {
         for (name, amount) in &rows {
             let selected = state.customer.as_deref() == Some(name.as_str());
             ui.horizontal(|ui| {
-                let text = RichText::new(truncate(name, 26)).size(14.0).color(if selected {
-                    PURPLE
-                } else {
-                    TEXT
-                });
+                let text = RichText::new(truncate(name, 26))
+                    .size(14.0)
+                    .color(if selected { PURPLE } else { TEXT });
                 let text = if selected { text.strong() } else { text };
                 let r = ui.add(egui::Button::new(text).frame(false));
                 if r.on_hover_text(name.as_str()).clicked() {
                     state.customer = if selected { None } else { Some(name.clone()) };
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(money(*amount)).size(14.0).strong().color(ORANGE));
+                    ui.label(
+                        RichText::new(money(*amount))
+                            .size(14.0)
+                            .strong()
+                            .color(ORANGE),
+                    );
                 });
             });
             let (rect, _) =
                 ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
             let w = rect.width() * (*amount as f32 / max as f32);
             ui.painter().rect_filled(
                 Rect::from_min_size(rect.min, Vec2::new(w, rect.height())),
@@ -622,7 +661,12 @@ fn monthly_card(ui: &mut Ui, year: i32, scoped: &[Invoice]) {
             }
         }
 
-        let max = invoiced.iter().chain(collected.iter()).copied().max().unwrap_or(0);
+        let max = invoiced
+            .iter()
+            .chain(collected.iter())
+            .copied()
+            .max()
+            .unwrap_or(0);
         let top = nice_max(max);
 
         let (rect, resp) =
@@ -687,7 +731,12 @@ fn monthly_card(ui: &mut Ui, year: i32, scoped: &[Invoice]) {
                         Pos2::new(x0, plot.bottom() - h),
                         Pos2::new(x0 + bar_w, plot.bottom()),
                     ),
-                    CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 },
+                    CornerRadius {
+                        nw: 4,
+                        ne: 4,
+                        sw: 0,
+                        se: 0,
+                    },
                     color,
                 );
             }
@@ -704,7 +753,11 @@ fn monthly_card(ui: &mut Ui, year: i32, scoped: &[Invoice]) {
         if let Some(i) = hovered {
             let y = if i < 9 { year } else { year + 1 };
             resp.on_hover_ui_at_pointer(|ui| {
-                ui.label(RichText::new(format!("{} {}", MONTHS[i], y)).size(14.0).strong());
+                ui.label(
+                    RichText::new(format!("{} {}", MONTHS[i], y))
+                        .size(14.0)
+                        .strong(),
+                );
                 ui.label(
                     RichText::new(format!("Invoiced: {}", money(invoiced[i])))
                         .size(13.0)
@@ -782,9 +835,8 @@ fn register_card(
                     });
             });
 
-            let active = !state.search.is_empty()
-                || state.customer.is_some()
-                || state.filter != Filter::All;
+            let active =
+                !state.search.is_empty() || state.customer.is_some() || state.filter != Filter::All;
             if active {
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
@@ -818,7 +870,10 @@ fn register_card(
                 ("Partial", Filter::Partial),
                 ("Paid", Filter::Paid),
             ] {
-                let n = searched.iter().filter(|i| matches_filter(i, filter)).count();
+                let n = searched
+                    .iter()
+                    .filter(|i| matches_filter(i, filter))
+                    .count();
                 let selected = state.filter == filter;
                 let button = egui::Button::new(
                     RichText::new(format!("{label}   {n}"))
@@ -862,7 +917,12 @@ fn register_card(
         // Header row
         egui::Frame::new()
             .fill(HEADER_BG)
-            .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
+            .corner_radius(CornerRadius {
+                nw: 8,
+                ne: 8,
+                sw: 0,
+                se: 0,
+            })
             .inner_margin(Margin::symmetric(12, 4))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -893,7 +953,12 @@ fn register_card(
         // Rows
         egui::Frame::new()
             .stroke(Stroke::new(1.0_f32, BORDER))
-            .corner_radius(CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 })
+            .corner_radius(CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: 8,
+                se: 8,
+            })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ScrollArea::vertical()
@@ -914,9 +979,11 @@ fn register_card(
                                 );
                                 ui.add_space(4.0);
                                 ui.label(
-                                    RichText::new("Try a different search, customer or status filter.")
-                                        .size(13.0)
-                                        .color(MUTED),
+                                    RichText::new(
+                                        "Try a different search, customer or status filter.",
+                                    )
+                                    .size(13.0)
+                                    .color(MUTED),
                                 );
                             });
                             ui.add_space(30.0);
@@ -956,7 +1023,8 @@ fn register_card(
                                                 )
                                                 .frame(false),
                                             );
-                                            if r.on_hover_text("Show only this customer").clicked() {
+                                            if r.on_hover_text("Show only this customer").clicked()
+                                            {
                                                 state.customer = Some(invoice.customer.clone());
                                             }
                                         });
@@ -1073,10 +1141,18 @@ fn payment_window(ctx: &egui::Context, p: &mut PaymentDraft, cancel: &mut bool, 
 
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Record payment").size(22.0).strong().color(TEXT));
+                    ui.label(
+                        RichText::new("Record payment")
+                            .size(22.0)
+                            .strong()
+                            .color(TEXT),
+                    );
                     ui.add_space(2.0);
                     ui.label(
-                        RichText::new(&p.invoice.customer).size(15.0).strong().color(PURPLE),
+                        RichText::new(&p.invoice.customer)
+                            .size(15.0)
+                            .strong()
+                            .color(PURPLE),
                     );
                     ui.label(
                         RichText::new(format!("{}  ·  {}", p.invoice.number, p.invoice.date))
@@ -1095,7 +1171,12 @@ fn payment_window(ctx: &egui::Context, p: &mut PaymentDraft, cancel: &mut bool, 
             ui.columns(3, |cols| {
                 small_metric(&mut cols[0], "INVOICE TOTAL", &money(p.invoice.total), TEXT);
                 small_metric(&mut cols[1], "RECEIVED", &money(p.invoice.received), GREEN);
-                small_metric(&mut cols[2], "BALANCE DUE", &money(p.invoice.balance()), ORANGE);
+                small_metric(
+                    &mut cols[2],
+                    "BALANCE DUE",
+                    &money(p.invoice.balance()),
+                    ORANGE,
+                );
             });
 
             let balance = p.invoice.balance();
@@ -1136,7 +1217,11 @@ fn payment_window(ctx: &egui::Context, p: &mut PaymentDraft, cancel: &mut bool, 
             ui.columns(2, |cols| {
                 field(&mut cols[0], "PAYMENT DATE", &mut p.date, "YYYY-MM-DD");
                 if !date_ok {
-                    cols[0].label(RichText::new("Use the format YYYY-MM-DD").size(12.5).color(RED));
+                    cols[0].label(
+                        RichText::new("Use the format YYYY-MM-DD")
+                            .size(12.5)
+                            .color(RED),
+                    );
                 }
                 field(
                     &mut cols[1],
@@ -1152,10 +1237,11 @@ fn payment_window(ctx: &egui::Context, p: &mut PaymentDraft, cancel: &mut bool, 
                 for (i, mode) in MODES.iter().enumerate() {
                     let selected = p.mode == i;
                     let button = egui::Button::new(
-                        RichText::new(*mode)
-                            .size(13.5)
-                            .strong()
-                            .color(if selected { PURPLE } else { MUTED }),
+                        RichText::new(*mode).size(13.5).strong().color(if selected {
+                            PURPLE
+                        } else {
+                            MUTED
+                        }),
                     )
                     .fill(if selected { PURPLE_BG } else { CARD })
                     .stroke(Stroke::new(1.0_f32, if selected { PURPLE } else { BORDER }))
@@ -1248,10 +1334,18 @@ fn history_window(
 
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Payment history").size(22.0).strong().color(TEXT));
+                    ui.label(
+                        RichText::new("Payment history")
+                            .size(22.0)
+                            .strong()
+                            .color(TEXT),
+                    );
                     if let Some(invoice) = invoice {
                         ui.label(
-                            RichText::new(&invoice.customer).size(15.0).strong().color(PURPLE),
+                            RichText::new(&invoice.customer)
+                                .size(15.0)
+                                .strong()
+                                .color(PURPLE),
                         );
                         ui.label(
                             RichText::new(format!("{}  ·  {}", invoice.number, invoice.date))
@@ -1272,7 +1366,12 @@ fn history_window(
                 ui.columns(3, |cols| {
                     small_metric(&mut cols[0], "INVOICE TOTAL", &money(invoice.total), TEXT);
                     small_metric(&mut cols[1], "RECEIVED", &money(invoice.received), GREEN);
-                    small_metric(&mut cols[2], "BALANCE DUE", &money(invoice.balance()), ORANGE);
+                    small_metric(
+                        &mut cols[2],
+                        "BALANCE DUE",
+                        &money(invoice.balance()),
+                        ORANGE,
+                    );
                 });
             }
 
@@ -1313,9 +1412,7 @@ fn history_window(
                                     );
                                 }
                                 if !receipt.notes.is_empty() {
-                                    ui.label(
-                                        RichText::new(&receipt.notes).size(12.5).color(MUTED),
-                                    );
+                                    ui.label(RichText::new(&receipt.notes).size(12.5).color(MUTED));
                                 }
                             });
                             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -1462,7 +1559,14 @@ fn arc_points(center: Pos2, radius: f32, a0: f32, a1: f32) -> Vec<Pos2> {
         .collect()
 }
 
-fn donut(ui: &mut Ui, rect: Rect, resp: &Response, segs: &[Seg], center_top: &str, center_bottom: &str) {
+fn donut(
+    ui: &mut Ui,
+    rect: Rect,
+    resp: &Response,
+    segs: &[Seg],
+    center_top: &str,
+    center_bottom: &str,
+) {
     let painter = ui.painter_at(rect);
     let center = rect.center();
     let thickness = 24.0_f32;
@@ -1501,11 +1605,16 @@ fn donut(ui: &mut Ui, rect: Rect, resp: &Response, segs: &[Seg], center_top: &st
                 continue;
             }
             let sweep = seg.value / total * TAU;
-            let width = if hovered == Some(i) { thickness + 5.0 } else { thickness };
+            let width = if hovered == Some(i) {
+                thickness + 5.0
+            } else {
+                thickness
+            };
             if nonzero == 1 {
                 painter.circle_stroke(center, radius, Stroke::new(width, seg.color));
             } else {
-                let points = arc_points(center, radius, start + gap / 2.0, start + sweep - gap / 2.0);
+                let points =
+                    arc_points(center, radius, start + gap / 2.0, start + sweep - gap / 2.0);
                 painter.add(Shape::line(points, Stroke::new(width, seg.color)));
             }
             start += sweep;
@@ -1557,9 +1666,15 @@ fn apply_style(ui: &mut Ui) {
     let style = ui.style_mut();
     style.spacing.item_spacing = Vec2::new(12.0, 8.0);
     style.spacing.button_padding = Vec2::new(12.0, 6.0);
-    style.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));
-    style.text_styles.insert(TextStyle::Button, FontId::proportional(14.0));
-    style.text_styles.insert(TextStyle::Small, FontId::proportional(12.0));
+    style
+        .text_styles
+        .insert(TextStyle::Body, FontId::proportional(14.0));
+    style
+        .text_styles
+        .insert(TextStyle::Button, FontId::proportional(14.0));
+    style
+        .text_styles
+        .insert(TextStyle::Small, FontId::proportional(12.0));
 }
 
 fn caps(text: &str) -> RichText {

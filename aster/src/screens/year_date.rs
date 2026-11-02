@@ -500,23 +500,147 @@ impl AsterApp {
         years.sort_unstable_by(|a, b| b.cmp(a));
         let current_fy = fy_of(today);
         let mut picked = None;
+        let mut delete_requested = None;
+
         egui::ScrollArea::vertical()
             .id_salt("aster_fy_list")
             .max_height(150.0)
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
+
                 for year in &years {
-                    if fy_row(ui, *year, *year == self.selected_year, *year == current_fy).clicked()
-                    {
-                        picked = Some(*year);
-                    }
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+
+                        let can_delete = *year != current_fy && years.len() > 1;
+                        let row_width = (ui.available_width() - 36.0).max(80.0);
+
+                        if fy_row(
+                            ui,
+                            *year,
+                            *year == self.selected_year,
+                            *year == current_fy,
+                            row_width,
+                        )
+                        .clicked()
+                        {
+                            picked = Some(*year);
+                        }
+
+                        if can_delete {
+                            if fy_delete_button(ui).clicked() {
+                                delete_requested = Some(*year);
+                            }
+                        } else {
+                            ui.allocate_exact_size(Vec2::new(28.0, 30.0), Sense::hover());
+                        }
+                    });
                 }
             });
+            
+        if let Some(year) = delete_requested {
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(Id::new("aster_pending_delete_fy"), year);
+            });
+        }
+
         if let Some(year) = picked {
             if year != self.selected_year {
                 self.selected_year = year;
                 self.message.clear();
+            }
+        }
+        let pending_delete: Option<i32> = ui.ctx().data(|d| {
+            d.get_temp(Id::new("aster_pending_delete_fy"))
+        });
+
+        if let Some(year) = pending_delete {
+            let mut confirm = false;
+            let mut cancel = false;
+
+            egui::Window::new("Delete financial year?")
+                .id(Id::new("aster_delete_fy_dialog"))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .show(ui.ctx(), |ui| {
+                    ui.set_min_width(300.0);
+
+                    ui.label(
+                        RichText::new(format!("Financial year {}–{}", year, year + 1))
+                            .strong()
+                            .color(INK),
+                    );
+
+                    ui.add_space(6.0);
+
+                    ui.label("This year will be removed from the financial-year list.");
+                    ui.label(
+                        RichText::new(
+                            "A backup will be created and its original data folder archived.",
+                        )
+                        .size(12.0)
+                        .color(MUTED),
+                    );
+
+                    ui.add_space(14.0);
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            cancel = true;
+                        }
+
+                        let delete = egui::Button::new(
+                            RichText::new("Delete year").color(Color32::WHITE),
+                        )
+                        .fill(DANGER);
+
+                        if ui.add(delete).clicked() {
+                            confirm = true;
+                        }
+                    });
+                });
+
+            if cancel {
+                ui.ctx().data_mut(|d| {
+                    d.remove::<i32>(Id::new("aster_pending_delete_fy"));
+                });
+            }
+
+            if confirm {
+                let result = self
+                    .db
+                    .as_ref()
+                    .ok_or_else(|| "Database is unavailable.".to_owned())
+                    .and_then(|db| db.delete_financial_year(year, current_fy));
+
+                match result {
+                    Ok(backup_path) => {
+                        self.financial_years.retain(|fy| *fy != year);
+
+                        if self.selected_year == year {
+                            self.selected_year = self.financial_years[0];
+                            self.date_text = format_ymd(default_date_for_fy(
+                                self.selected_year,
+                                today,
+                            ));
+                        }
+
+                        self.message = format!(
+                            "Financial year deleted. Backup saved at {}",
+                            backup_path.display()
+                        );
+                    }    
+                    Err(error) => {
+                        self.message = error;
+                    }
+                    
+                }
+
+                ui.ctx().data_mut(|d| {
+                    d.remove::<i32>(Id::new("aster_pending_delete_fy"));
+                });
             }
         }
 
@@ -943,10 +1067,16 @@ impl AsterApp {
 
 // ------------------------------------------------------------------ widgets
 
-fn fy_row(ui: &mut egui::Ui, year: i32, selected: bool, current: bool) -> egui::Response {
+fn fy_row(
+    ui: &mut egui::Ui,
+    year: i32,
+    selected: bool,
+    current: bool,
+    width: f32,
+) -> egui::Response {
     let ctx = ui.ctx().clone();
     let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(ui.available_width(), 38.0), Sense::click());
+        ui.allocate_exact_size(Vec2::new(width, 38.0), Sense::click());
     let hover = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
     let sel = ctx.animate_bool_with_time(response.id.with("s"), selected, anim(&ctx) * 1.2);
 
@@ -1002,6 +1132,21 @@ fn fy_row(ui: &mut egui::Ui, year: i32, selected: bool, current: bool) -> egui::
         ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     response
+}
+
+fn fy_delete_button(ui: &mut egui::Ui) -> egui::Response {
+    ui.add_sized(
+        [28.0, 30.0],
+        egui::Button::new(
+            RichText::new("×")
+                .size(20.0)
+                .color(DANGER),
+        )
+        .fill(Color32::from_rgb(252, 235, 237))
+        .stroke(Stroke::new(1.0_f32, BORDER))
+        .corner_radius(8.0),
+    )
+    .on_hover_text("Delete financial year")
 }
 
 fn link_button(ui: &mut egui::Ui, label: &str, color: Color32) -> egui::Response {

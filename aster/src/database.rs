@@ -1,10 +1,17 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, backup::Backup, params};
+
+use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 use crate::date::local_date;
 
@@ -668,13 +675,9 @@ impl Database {
             ).map_err(|error| format!("Apply sales invoice migration: {error}"))?;
         }
 
-            let version: i64 = connection
+        let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .map_err(|error| {
-                format!(
-                    "Re-read financial-year schema version: {error}"
-                )
-            })?;
+            .map_err(|error| format!("Re-read financial-year schema version: {error}"))?;
 
         if version < 6 {
             connection
@@ -700,9 +703,7 @@ impl Database {
                     PRAGMA user_version = 6;
                     COMMIT;",
                 )
-                .map_err(|error| {
-                    format!("Apply payment receipt migration: {error}")
-                })?;
+                .map_err(|error| format!("Apply payment receipt migration: {error}"))?;
         }
 
         let stored_year: Option<i32> = connection
@@ -752,34 +753,356 @@ impl Database {
 
     pub(crate) fn create_financial_year(&self, start_year: i32) -> Result<(), String> {
         validate_financial_year(start_year)?;
-        // Create and validate the year database before registering it globally. If
-        // initialization fails, the year selector will not show a broken year.
-        self.initialize_year_database(start_year)?;
-        let mut connection = self.connection()?;
-        let transaction = connection
+
+        let year_directory = self
+            .data_dir
+            .join(format!("{start_year}-{}", start_year + 1));
+
+        let mut global = self.connection()?;
+        let transaction = global
             .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| format!("Start financial-year creation: {error}"))?;
-        transaction
-            .execute(
-                "INSERT INTO financial_years (start_year) VALUES (?1)",
+            .map_err(|e| format!("Start financial-year creation: {e}"))?;
+
+        let exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM financial_years WHERE start_year = ?1
+                )",
                 [start_year],
+                |row| row.get(0),
             )
-            .map_err(|error| {
-                if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation) {
-                    format!(
-                        "Financial year {start_year}–{} already exists.",
-                        start_year + 1
-                    )
-                } else {
-                    format!(
-                        "Register financial year {start_year}–{}: {error}",
-                        start_year + 1
-                    )
-                }
-            })?;
+            .map_err(|e| format!("Check financial year: {e}"))?;
+
+        if exists {
+            return Err(format!(
+                "Financial year {start_year}–{} already exists.",
+                start_year + 1
+            ));
+        }
+
+        if year_directory.exists() {
+            return Err(format!(
+                "The data folder for {start_year}–{} already exists but is not registered. It has been left untouched. Inspect or back it up before proceeding.",
+                start_year + 1
+            ));
+        }
+
+        let previous_year: Option<i32> = transaction
+            .query_row(
+                "SELECT MAX(start_year)
+                FROM financial_years
+                WHERE start_year < ?1",
+                [start_year],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Find previous financial year: {e}"))?;
+
+        let result = (|| {
+            self.initialize_year_database(start_year)?;
+
+            if let Some(previous_year) = previous_year {
+                self.carry_forward_year(previous_year, start_year)?;
+            }
+
+            transaction
+                .execute(
+                    "INSERT INTO financial_years (start_year) VALUES (?1)",
+                    [start_year],
+                )
+                .map_err(|e| format!("Register financial year: {e}"))?;
+
+            transaction
+                .commit()
+                .map_err(|e| format!("Finish financial-year creation: {e}"))?;
+
+            Ok(())
+        })();
+
+        if result.is_err() {
+            // Only remove the new folder. The previous year's data is untouched.
+            let _ = fs::remove_dir_all(&year_directory);
+        }
+
+        result
+    }
+
+    pub(crate) fn delete_financial_year(
+        &self,
+        start_year: i32,
+        current_fy: i32,
+    ) -> Result<PathBuf, String>{
+        validate_financial_year(start_year)?;
+        if start_year == current_fy {
+            return Err("The current financial year cannot be deleted.".into());
+        }
+
+        let years = self.financial_years()?;
+
+        if !years.contains(&start_year) {
+            return Err(format!(
+                "Financial year {start_year}–{} is not registered.",
+                start_year + 1
+            ));
+        }
+
+        if years.len() <= 1 {
+            return Err("At least one financial year must remain.".into());
+        }
+
+        let year_directory = self
+            .data_dir
+            .join(format!("{start_year}-{}", start_year + 1));
+
+        if !year_directory.is_dir() {
+            return Err("The financial-year data folder does not exist.".into());
+        }
+
+        let stamp = unique_stamp();
+        let backup_path = self.data_dir.join(format!(
+            "{start_year}-{}-before-deletion-{stamp}.zip",
+            start_year + 1
+        ));
+
+        // Back up the global database and every registered financial year.
+        self.backup_to_path(&backup_path)?;
+
+        let archive_parent = self.data_dir.join("deleted");
+        fs::create_dir_all(&archive_parent)
+            .map_err(|e| format!("Create deleted-year archive folder: {e}"))?;
+
+        let archived_directory = archive_parent.join(format!(
+            "{start_year}-{}-{stamp}",
+            start_year + 1
+        ));
+
+        // Move the original folder instead of permanently deleting it.
+        fs::rename(&year_directory, &archived_directory)
+            .map_err(|e| format!("Archive financial-year data: {e}"))?;
+
+        let result = (|| {
+            let mut connection = self.connection()?;
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| format!("Start financial-year deletion: {e}"))?;
+
+            let deleted = transaction
+                .execute(
+                    "DELETE FROM financial_years WHERE start_year = ?1",
+                    [start_year],
+                )
+                .map_err(|e| format!("Remove financial-year registration: {e}"))?;
+
+            if deleted != 1 {
+                return Err("Financial-year registration was not found.".into());
+            }
+
+            transaction
+                .commit()
+                .map_err(|e| format!("Finish financial-year deletion: {e}"))?;
+
+            Ok(())
+        })();
+
+        if let Err(error) = result {
+            if let Err(restore_error) = fs::rename(&archived_directory, &year_directory) {
+                return Err(format!(
+                    "{error}. Also failed to restore the original data folder: {restore_error}. \
+                    Your archived data remains at {}",
+                    archived_directory.display()
+                ));
+            }
+            return Err(error);
+        }
+
+        Ok(backup_path)
+}
+
+    fn carry_forward_year(&self, previous_year: i32, new_year: i32) -> Result<(), String> {
+        drop(self.year_connection(previous_year)?);
+
+        let source_path = self.year_database_path(previous_year);
+        let target_path = self.year_database_path(new_year);
+        let source_text = source_path.to_string_lossy().into_owned();
+
+        let mut target = Connection::open(&target_path)
+            .map_err(|e| format!("Open new financial-year database: {e}"))?;
+
+        configure_connection(&target)?;
+
+        target
+            .execute(
+                "ATTACH DATABASE ?1 AS previous_year",
+                [source_text.as_str()],
+            )
+            .map_err(|e| format!("Attach previous financial year: {e}"))?;
+
+        let transaction = target
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| format!("Start carry-forward: {e}"))?;
+
+        let result = transaction.execute_batch(
+            "
+            DELETE FROM units;
+
+            INSERT INTO company_settings (
+                id, legal_name, trade_name, gstin,
+                drug_license_1, drug_license_2,
+                address_line1, address_line2, city,
+                state, state_code, pincode, phone, email,
+                invoice_prefix, bank_name, bank_account_name,
+                bank_account_number, bank_ifsc, updated_at
+            )
+            SELECT
+                id, legal_name, trade_name, gstin,
+                drug_license_1, drug_license_2,
+                address_line1, address_line2, city,
+                state, state_code, pincode, phone, email,
+                invoice_prefix, bank_name, bank_account_name,
+                bank_account_number, bank_ifsc, updated_at
+            FROM previous_year.company_settings;
+
+            INSERT INTO manufacturers (
+                id, name, contact_person, phone,
+                email, address, active, created_at
+            )
+            SELECT
+                id, name, contact_person, phone,
+                email, address, active, created_at
+            FROM previous_year.manufacturers;
+
+            INSERT INTO units (id, name, short_name, active)
+            SELECT id, name, short_name, active
+            FROM previous_year.units;
+
+            INSERT INTO customers (
+                id, name, phone, email, gstin, drug_license,
+                address_line1, address_line2, city, state,
+                state_code, pincode, credit_limit_paise,
+                opening_balance_paise, active, created_at, updated_at
+            )
+            SELECT
+                id, name, phone, email, gstin, drug_license,
+                address_line1, address_line2, city, state,
+                state_code, pincode, credit_limit_paise,
+                opening_balance_paise, active, created_at, updated_at
+            FROM previous_year.customers;
+
+            INSERT INTO suppliers (
+                id, name, phone, email, gstin, drug_license,
+                address_line1, address_line2, city, state,
+                state_code, pincode, opening_balance_paise,
+                active, created_at, updated_at, trade_name,
+                contact_person, payment_terms_days, credit_limit_paise
+            )
+            SELECT
+                id, name, phone, email, gstin, drug_license,
+                address_line1, address_line2, city, state,
+                state_code, pincode, opening_balance_paise,
+                active, created_at, updated_at, trade_name,
+                contact_person, payment_terms_days, credit_limit_paise
+            FROM previous_year.suppliers;
+
+            INSERT INTO products (
+                id, name, brand_name, generic_name, composition,
+                manufacturer_id, unit_id, hsn_code, gst_percent,
+                schedule, barcode, reorder_level, active,
+                created_at, updated_at
+            )
+            SELECT
+                id, name, brand_name, generic_name, composition,
+                manufacturer_id, unit_id, hsn_code, gst_percent,
+                schedule, barcode, reorder_level, active,
+                created_at, updated_at
+            FROM previous_year.products;
+
+            INSERT INTO supplier_manufacturers (
+                supplier_id, manufacturer_id, created_at
+            )
+            SELECT supplier_id, manufacturer_id, created_at
+            FROM previous_year.supplier_manufacturers;
+
+            INSERT INTO supplier_products (
+                supplier_id, product_id, supplier_product_code,
+                preferred, min_order_qty, created_at
+            )
+            SELECT
+                supplier_id, product_id, supplier_product_code,
+                preferred, min_order_qty, created_at
+            FROM previous_year.supplier_products;
+
+            INSERT INTO batches (
+                id, product_id, batch_no, expiry_date,
+                mrp_paise, purchase_rate_paise, sale_rate_paise,
+                qty_on_hand_milli, free_qty_on_hand_milli,
+                active, created_at
+            )
+            SELECT
+                id, product_id, batch_no, expiry_date,
+                mrp_paise, purchase_rate_paise, sale_rate_paise,
+                qty_on_hand_milli, free_qty_on_hand_milli,
+                active, created_at
+            FROM previous_year.batches;
+
+            INSERT INTO stock_movements (
+                batch_id, movement_type, reference_type,
+                reference_id, quantity_change_milli,
+                free_quantity_change_milli
+            )
+            SELECT
+                id, 'adjustment', 'opening_stock', id,
+                qty_on_hand_milli, free_qty_on_hand_milli
+            FROM previous_year.batches
+            WHERE qty_on_hand_milli <> 0
+            OR free_qty_on_hand_milli <> 0;
+
+            UPDATE customers
+            SET opening_balance_paise =
+                opening_balance_paise + COALESCE((
+                    SELECT SUM(total_paise - received_paise)
+                    FROM previous_year.sales_invoices
+                    WHERE customer_id = customers.id
+                    AND status = 'posted'
+                ), 0);
+
+            UPDATE suppliers
+            SET opening_balance_paise =
+                opening_balance_paise + COALESCE((
+                    SELECT SUM(total_paise)
+                    FROM previous_year.purchase_documents
+                    WHERE supplier_id = suppliers.id
+                    AND status = 'posted'
+                ), 0);
+            ",
+        );
+
+        if let Err(error) = result {
+            drop(transaction);
+            let _ = target.execute_batch("DETACH DATABASE previous_year");
+
+            return Err(format!(
+                "Carry forward from {previous_year}–{} failed: {error}",
+                previous_year + 1
+            ));
+        }
+
         transaction
             .commit()
-            .map_err(|error| format!("Finish financial-year creation: {error}"))?;
+            .map_err(|e| format!("Commit carry-forward: {e}"))?;
+
+        target
+            .execute_batch("DETACH DATABASE previous_year")
+            .map_err(|e| format!("Detach previous year: {e}"))?;
+
+        let integrity: String = target
+            .query_row("PRAGMA quick_check", [], |row| row.get(0))
+            .map_err(|e| format!("Verify new year database: {e}"))?;
+
+        if integrity != "ok" {
+            return Err(format!(
+                "New financial-year integrity check failed: {integrity}"
+            ));
+        }
+
         Ok(())
     }
 
@@ -975,7 +1298,138 @@ impl Database {
         Ok(())
     }
 
-    #[cfg(test)]
+    pub(crate) fn backup_to_path(&self, destination: &Path) -> Result<(), String> {
+        let years = self.financial_years()?;
+        let parent = destination.parent().unwrap_or(Path::new("."));
+        fs::create_dir_all(parent).map_err(|e| format!("Create backup folder: {e}"))?;
+
+        let temp_dir = backup_temp_dir()?;
+        let result = (|| {
+            let file =
+                fs::File::create(destination).map_err(|e| format!("Create backup archive: {e}"))?;
+            let mut archive = ZipWriter::new(file);
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+            archive
+                .start_file("manifest.txt", options)
+                .map_err(|e| format!("Create backup manifest: {e}"))?;
+
+            let manifest = format!(
+                "ASTER_BACKUP_V1\n{}\n",
+                years
+                    .iter()
+                    .map(i32::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            archive
+                .write_all(manifest.as_bytes())
+                .map_err(|e| format!("Write backup manifest: {e}"))?;
+
+            let global_snapshot = temp_dir.join("global.sqlite3");
+            create_sqlite_snapshot(&self.path, &global_snapshot)?;
+            archive
+                .start_file("global.sqlite3", options)
+                .map_err(|e| format!("Add global database: {e}"))?;
+            let mut source = fs::File::open(&global_snapshot)
+                .map_err(|e| format!("Read global snapshot: {e}"))?;
+            std::io::copy(&mut source, &mut archive)
+                .map_err(|e| format!("Write global snapshot: {e}"))?;
+
+            for year in &years {
+                let snapshot = temp_dir.join(format!("{year}.sqlite3"));
+                create_sqlite_snapshot(&self.year_database_path(*year), &snapshot)?;
+
+                archive
+                    .start_file(format!("years/{year}.sqlite3"), options)
+                    .map_err(|e| format!("Add {year} database: {e}"))?;
+
+                let mut source =
+                    fs::File::open(snapshot).map_err(|e| format!("Read {year} snapshot: {e}"))?;
+                std::io::copy(&mut source, &mut archive)
+                    .map_err(|e| format!("Write {year} snapshot: {e}"))?;
+            }
+
+            archive
+                .finish()
+                .map_err(|e| format!("Finish backup archive: {e}"))?;
+            Ok(())
+        })();
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        result
+    }
+
+    pub(crate) fn restore_from_path(&self, source: &Path) -> Result<PathBuf, String> {
+        let temp_dir = backup_temp_dir()?;
+
+        let result = (|| {
+            let file = fs::File::open(source).map_err(|e| format!("Open backup archive: {e}"))?;
+            let mut archive =
+                ZipArchive::new(file).map_err(|e| format!("Invalid backup archive: {e}"))?;
+
+            let mut manifest = String::new();
+            archive
+                .by_name("manifest.txt")
+                .map_err(|_| "Backup manifest is missing.".to_owned())?
+                .read_to_string(&mut manifest)
+                .map_err(|e| format!("Read backup manifest: {e}"))?;
+
+            let mut lines = manifest.lines();
+            if lines.next() != Some("ASTER_BACKUP_V1") {
+                return Err("Unsupported or invalid ASTER backup version.".into());
+            }
+
+            let mut years = Vec::new();
+            for line in lines {
+                if line.is_empty() {
+                    continue;
+                }
+                let year: i32 = line
+                    .parse()
+                    .map_err(|_| "Invalid financial year in backup manifest.".to_owned())?;
+                validate_financial_year(year)?;
+                if years.contains(&year) {
+                    return Err("Duplicate financial year in backup manifest.".into());
+                }
+                years.push(year);
+            }
+
+            if years.is_empty() {
+                return Err("The backup contains no financial years.".into());
+            }
+
+            let global_path = temp_dir.join("global.sqlite3");
+            extract_backup_entry(&mut archive, "global.sqlite3", &global_path)?;
+            validate_global_backup(&global_path, &years)?;
+
+            let mut staged = vec![(global_path, self.path.clone())];
+
+            for year in &years {
+                let entry = format!("years/{year}.sqlite3");
+                let staged_path = temp_dir.join(format!("{year}.sqlite3"));
+                extract_backup_entry(&mut archive, &entry, &staged_path)?;
+                validate_year_backup(&staged_path, *year)?;
+                staged.push((staged_path, self.year_database_path(*year)));
+            }
+
+            // A separate, complete safety backup is created before any live database
+            // is changed. It is placed beside the selected backup archive.
+            let safety_path = source.with_file_name(format!(
+                "ASTER-before-restore-{}.asterbackup",
+                unique_stamp()
+            ));
+            self.backup_to_path(&safety_path)?;
+
+            replace_databases_safely(&staged)?;
+
+            Ok(safety_path)
+        })();
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        result
+    }
     fn year_database_path(&self, start_year: i32) -> PathBuf {
         self.data_dir
             .join(format!("{start_year}-{}", start_year + 1))
@@ -1839,9 +2293,7 @@ impl Database {
             .map_err(|e| format!("Update invoice balance: {e}"))?;
 
         if changed != 1 {
-            return Err(
-                "The invoice balance changed. Refresh the invoice and try again.".into(),
-            );
+            return Err("The invoice balance changed. Refresh the invoice and try again.".into());
         }
 
         tx.commit()
@@ -2150,6 +2602,160 @@ fn validate_financial_year(start_year: i32) -> Result<(), String> {
             "Financial year must start between {MIN_FINANCIAL_YEAR} and {MAX_FINANCIAL_YEAR}."
         ));
     }
+    Ok(())
+}
+
+fn unique_stamp() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+fn backup_temp_dir() -> Result<PathBuf, String> {
+    let path = std::env::temp_dir().join(format!(
+        "aster-backup-{}-{}",
+        std::process::id(),
+        unique_stamp()
+    ));
+    fs::create_dir_all(&path).map_err(|e| format!("Create temporary backup folder: {e}"))?;
+    Ok(path)
+}
+
+fn create_sqlite_snapshot(source: &Path, destination: &Path) -> Result<(), String> {
+    let source_connection = Connection::open(source)
+        .map_err(|e| format!("Open source database {}: {e}", source.display()))?;
+    let mut destination_connection =
+        Connection::open(destination).map_err(|e| format!("Create SQLite snapshot: {e}"))?;
+
+    let backup = Backup::new(&source_connection, &mut destination_connection)
+        .map_err(|e| format!("Initialize SQLite backup: {e}"))?;
+
+    backup
+        .run_to_completion(100, Duration::from_millis(10), None)
+        .map_err(|e| format!("Create SQLite snapshot: {e}"))?;
+
+    drop(backup);
+
+    let integrity: String = destination_connection
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|e| format!("Verify SQLite snapshot: {e}"))?;
+
+    if integrity != "ok" {
+        return Err(format!("Snapshot integrity check failed: {integrity}"));
+    }
+    Ok(())
+}
+
+fn extract_backup_entry(
+    archive: &mut ZipArchive<fs::File>,
+    entry_name: &str,
+    destination: &Path,
+) -> Result<(), String> {
+    let mut entry = archive
+        .by_name(entry_name)
+        .map_err(|_| format!("Backup is missing {entry_name}."))?;
+
+    if entry.size() > 2 * 1024 * 1024 * 1024 {
+        return Err(format!("{entry_name} exceeds the 2 GB safety limit."));
+    }
+
+    let mut output =
+        fs::File::create(destination).map_err(|e| format!("Prepare restored database: {e}"))?;
+
+    std::io::copy(&mut entry, &mut output).map_err(|e| format!("Extract {entry_name}: {e}"))?;
+    output
+        .sync_all()
+        .map_err(|e| format!("Flush restored database: {e}"))?;
+    Ok(())
+}
+
+fn validate_sqlite_file(path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open(path).map_err(|e| format!("Open backup database: {e}"))?;
+    let integrity: String = connection
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|e| format!("Check backup database: {e}"))?;
+
+    if integrity != "ok" {
+        return Err(format!(
+            "Backup database integrity check failed: {integrity}"
+        ));
+    }
+    Ok(connection)
+}
+
+fn validate_global_backup(path: &Path, expected_years: &[i32]) -> Result<(), String> {
+    let connection = validate_sqlite_file(path)?;
+    let mut statement = connection
+        .prepare("SELECT start_year FROM financial_years ORDER BY start_year DESC")
+        .map_err(|e| format!("Read backup financial years: {e}"))?;
+
+    let actual = statement
+        .query_map([], |row| row.get::<_, i32>(0))
+        .map_err(|e| format!("Read backup financial years: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Read backup financial years: {e}"))?;
+
+    let mut expected = expected_years.to_vec();
+    expected.sort_unstable_by(|a, b| b.cmp(a));
+
+    if actual != expected {
+        return Err("Backup manifest does not match its global database.".into());
+    }
+    Ok(())
+}
+
+fn validate_year_backup(path: &Path, expected_year: i32) -> Result<(), String> {
+    let connection = validate_sqlite_file(path)?;
+    let stored_year: i32 = connection
+        .query_row(
+            "SELECT financial_year_start FROM aster_meta WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Verify {expected_year} financial-year database: {e}"))?;
+
+    if stored_year != expected_year {
+        return Err(format!(
+            "Financial-year database mismatch: expected {expected_year}–{}.",
+            expected_year + 1
+        ));
+    }
+    Ok(())
+}
+
+fn replace_databases_safely(staged: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let stamp = unique_stamp();
+    let mut replaced: Vec<(PathBuf, PathBuf)> = Vec::new();
+
+    for (index, (staged_path, target_path)) in staged.iter().enumerate() {
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Prepare database folder: {e}"))?;
+        }
+
+        let old_path = target_path.with_extension(format!("pre-restore-{stamp}-{index}"));
+        if target_path.exists() {
+            fs::rename(target_path, &old_path)
+                .map_err(|e| format!("Protect existing database: {e}"))?;
+        }
+
+        if let Err(error) = fs::copy(staged_path, target_path) {
+            if old_path.exists() {
+                let _ = fs::rename(&old_path, target_path);
+            }
+            for (old, target) in replaced.iter().rev() {
+                let _ = fs::remove_file(target);
+                let _ = fs::rename(old, target);
+            }
+            return Err(format!("Replace database: {error}"));
+        }
+
+        if old_path.exists() {
+            replaced.push((old_path, target_path.clone()));
+        }
+    }
+
+    // Old database copies are retained as an additional recovery measure.
     Ok(())
 }
 

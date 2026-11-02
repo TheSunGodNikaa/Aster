@@ -7,8 +7,21 @@ edition = "2024"
 eframe = "0.33"
 egui = "0.33"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+
 argon2 = "0.5"
 password-hash = { version = "0.5", features = ["getrandom"] }
-rusqlite = { version = "0.38", features = ["bundled"] }
 keyring = "3"
+
+rusqlite = { version = "0.38", features = ["bundled", "backup"] }
+
 num-format = "0.4"
+
+# Native Windows file and folder dialogs
+rfd = "0.15"
+
+# Persistent application preferences
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Compressed backup archives
+zip = { version = "6", default-features = false, features = ["deflate"] }

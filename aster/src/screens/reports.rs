@@ -1,9 +1,9 @@
 use crate::app::AsterApp;
 use crate::utils::currency::format_inr;
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, Id, Label, Layout, RichText, ScrollArea, Sense, Stroke,
+    self, Align, Color32, CornerRadius, Id, Label, ScrollArea, Layout, RichText, Sense, Stroke,
 };
-use rusqlite::{params, Connection, Row};
+use rusqlite::{Connection, Row, params};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
@@ -168,12 +168,24 @@ struct Cell {
 impl Cell {
     fn text(value: impl Into<String>) -> Self {
         let text: String = value.into();
-        let text = if text.trim().is_empty() { "—".to_owned() } else { text };
-        Self { text, num: None, tone: Tone::Normal }
+        let text = if text.trim().is_empty() {
+            "—".to_owned()
+        } else {
+            text
+        };
+        Self {
+            text,
+            num: None,
+            tone: Tone::Normal,
+        }
     }
 
     fn money(paise: i64) -> Self {
-        Self { text: money(paise), num: Some(paise as f64), tone: Tone::Normal }
+        Self {
+            text: money(paise),
+            num: Some(paise as f64),
+            tone: Tone::Normal,
+        }
     }
 
     fn qty(milli: i64) -> Self {
@@ -185,11 +197,19 @@ impl Cell {
     }
 
     fn count(value: i64) -> Self {
-        Self { text: value.to_string(), num: Some(value as f64), tone: Tone::Normal }
+        Self {
+            text: value.to_string(),
+            num: Some(value as f64),
+            tone: Tone::Normal,
+        }
     }
 
     fn number(text: String, value: f64) -> Self {
-        Self { text, num: Some(value), tone: Tone::Normal }
+        Self {
+            text,
+            num: Some(value),
+            tone: Tone::Normal,
+        }
     }
 
     fn tone(mut self, tone: Tone) -> Self {
@@ -211,8 +231,18 @@ struct Metric {
     accent: Color32,
 }
 
-fn metric(label: &str, value: impl Into<String>, note: impl Into<String>, accent: Color32) -> Metric {
-    Metric { label: label.to_owned(), value: value.into(), note: note.into(), accent }
+fn metric(
+    label: &str,
+    value: impl Into<String>,
+    note: impl Into<String>,
+    accent: Color32,
+) -> Metric {
+    Metric {
+        label: label.to_owned(),
+        value: value.into(),
+        note: note.into(),
+        accent,
+    }
 }
 
 #[derive(Clone)]
@@ -230,7 +260,10 @@ struct ReportError {
 
 impl ReportError {
     fn user(summary: &str) -> Self {
-        Self { summary: summary.to_owned(), detail: String::new() }
+        Self {
+            summary: summary.to_owned(),
+            detail: String::new(),
+        }
     }
 
     fn technical(kind: ReportKind, detail: String) -> Self {
@@ -306,34 +339,26 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         load_report(app, &mut state);
     }
 
-    ScrollArea::vertical()
-        .id_salt("aster_reports_page")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
+    draw_header(ui, app, &mut state);
+    ui.add_space(14.0);
+    draw_report_selector(ui, app, &mut state);
+    ui.add_space(12.0);
+    draw_filters(ui, app, &mut state);
+    ui.add_space(14.0);
 
-            draw_header(ui, app, &mut state);
-            ui.add_space(14.0);
-            draw_report_selector(ui, app, &mut state);
-            ui.add_space(12.0);
-            draw_filters(ui, app, &mut state);
-            ui.add_space(14.0);
+    if state.error.is_some() {
+        draw_error(ui, app, &mut state);
+    } else {
+        draw_metrics(ui, &state);
+        draw_breakdown(ui, &state);
+        ui.add_space(16.0);
+        draw_table(ui, &mut state);
+    }
 
-            if state.error.is_some() {
-                draw_error(ui, app, &mut state);
-            } else {
-                draw_metrics(ui, &state);
-                draw_breakdown(ui, &state);
-                ui.add_space(16.0);
-                draw_table(ui, &mut state);
-            }
-
-            ui.add_space(24.0);
-        });
+    ui.add_space(24.0);
 
     ui.ctx().data_mut(|data| data.insert_temp(id, state));
 }
-
 // ───────────────────────────── ui helpers ─────────────────────────────
 
 fn card(ui: &egui::Ui, margin: f32) -> egui::Frame {
@@ -416,7 +441,11 @@ fn draw_header(ui: &mut egui::Ui, app: &AsterApp, state: &mut ReportState) {
 
     if !state.notice.is_empty() {
         ui.add_space(6.0);
-        let (color, prefix) = if state.notice_is_error { (RED, "!") } else { (GREEN, "✓") };
+        let (color, prefix) = if state.notice_is_error {
+            (RED, "!")
+        } else {
+            (GREEN, "✓")
+        };
         ui.label(
             RichText::new(format!("{prefix}  {}", state.notice))
                 .size(12.0)
@@ -485,7 +514,11 @@ fn draw_filters(ui: &mut egui::Ui, app: &AsterApp, state: &mut ReportState) {
 
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("From").size(12.0).color(MUTED));
-            let from_btn = date_button(ui, &state.from_text, state.picker == Some(PickerTarget::From));
+            let from_btn = date_button(
+                ui,
+                &state.from_text,
+                state.picker == Some(PickerTarget::From),
+            );
             if from_btn.clicked() {
                 open_picker(state, PickerTarget::From, from_btn.rect);
             }
@@ -508,15 +541,21 @@ fn draw_filters(ui: &mut egui::Ui, app: &AsterApp, state: &mut ReportState) {
             if search.changed() {
                 state.page = 0;
             }
-            if !state.search.is_empty() && ui.small_button("✕").on_hover_text("Clear search").clicked() {
+            if !state.search.is_empty()
+                && ui.small_button("✕").on_hover_text("Clear search").clicked()
+            {
                 state.search.clear();
                 state.page = 0;
             }
         });
 
         let note = match state.kind {
-            ReportKind::Stock => Some("Stock is a live snapshot; the period does not change quantities."),
-            ReportKind::Receivables => Some("Age is counted in days from the invoice date to today."),
+            ReportKind::Stock => {
+                Some("Stock is a live snapshot; the period does not change quantities.")
+            }
+            ReportKind::Receivables => {
+                Some("Age is counted in days from the invoice date to today.")
+            }
             _ => None,
         };
         if let Some(note) = note {
@@ -566,23 +605,33 @@ fn draw_error(ui: &mut egui::Ui, app: &AsterApp, state: &mut ReportState) {
         .inner_margin(16.0)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.label(RichText::new("Unable to load this report").size(15.0).strong().color(RED));
+            ui.label(
+                RichText::new("Unable to load this report")
+                    .size(15.0)
+                    .strong()
+                    .color(RED),
+            );
             ui.add_space(4.0);
 
             if let Some(error) = &state.error {
                 ui.label(RichText::new(&error.summary).size(12.5).color(INK));
                 if !error.detail.is_empty() {
                     ui.add_space(6.0);
-                    egui::CollapsingHeader::new(RichText::new("Technical details").size(11.5).color(MUTED))
-                        .id_salt("aster_reports_error_details")
-                        .show(ui, |ui| {
-                            ui.add(
-                                Label::new(
-                                    RichText::new(&error.detail).monospace().size(11.0).color(MUTED),
-                                )
-                                .selectable(true),
-                            );
-                        });
+                    egui::CollapsingHeader::new(
+                        RichText::new("Technical details").size(11.5).color(MUTED),
+                    )
+                    .id_salt("aster_reports_error_details")
+                    .show(ui, |ui| {
+                        ui.add(
+                            Label::new(
+                                RichText::new(&error.detail)
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(MUTED),
+                            )
+                            .selectable(true),
+                        );
+                    });
                 }
             }
 
@@ -610,10 +659,16 @@ fn draw_metrics(ui: &mut egui::Ui, state: &ReportState) {
                 ui.set_min_height(88.0);
 
                 let (bar, _) = ui.allocate_exact_size(egui::vec2(28.0, 3.0), Sense::hover());
-                ui.painter().rect_filled(bar, CornerRadius::same(2), metric.accent);
+                ui.painter()
+                    .rect_filled(bar, CornerRadius::same(2), metric.accent);
                 ui.add_space(6.0);
 
-                ui.label(RichText::new(metric.label.to_uppercase()).size(10.5).strong().color(MUTED));
+                ui.label(
+                    RichText::new(metric.label.to_uppercase())
+                        .size(10.5)
+                        .strong()
+                        .color(MUTED),
+                );
                 ui.add_space(2.0);
                 ui.label(RichText::new(&metric.value).size(22.0).strong().color(INK));
                 if !metric.note.is_empty() {
@@ -635,10 +690,21 @@ fn draw_breakdown(ui: &mut egui::Ui, state: &ReportState) {
     ui.add_space(14.0);
     card(ui, 14.0).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
-        ui.label(RichText::new(&breakdown.title).size(14.0).strong().color(INK));
+        ui.label(
+            RichText::new(&breakdown.title)
+                .size(14.0)
+                .strong()
+                .color(INK),
+        );
         ui.add_space(10.0);
 
-        let max = breakdown.items.iter().map(|item| item.1).max().unwrap_or(1).max(1);
+        let max = breakdown
+            .items
+            .iter()
+            .map(|item| item.1)
+            .max()
+            .unwrap_or(1)
+            .max(1);
 
         for (name, value) in &breakdown.items {
             let share = if breakdown.total > 0 {
@@ -658,13 +724,16 @@ fn draw_breakdown(ui: &mut egui::Ui, state: &ReportState) {
                 });
             });
 
-            let (track, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 6.0), Sense::hover());
-            ui.painter().rect_filled(track, CornerRadius::same(3), PURPLE_TINT);
+            let (track, _) =
+                ui.allocate_exact_size(egui::vec2(ui.available_width(), 6.0), Sense::hover());
+            ui.painter()
+                .rect_filled(track, CornerRadius::same(3), PURPLE_TINT);
             if *value > 0 {
                 let fraction = (*value as f32 / max as f32).clamp(0.015, 1.0);
                 let mut fill = track;
                 fill.set_width(track.width() * fraction);
-                ui.painter().rect_filled(fill, CornerRadius::same(3), PURPLE);
+                ui.painter()
+                    .rect_filled(fill, CornerRadius::same(3), PURPLE);
             }
             ui.add_space(8.0);
         }
@@ -672,7 +741,9 @@ fn draw_breakdown(ui: &mut egui::Ui, state: &ReportState) {
 }
 
 fn draw_cell(ui: &mut egui::Ui, cell: &Cell, kind: ColKind) {
-    let mut text = RichText::new(&cell.text).size(12.0).color(cell.tone.color());
+    let mut text = RichText::new(&cell.text)
+        .size(12.0)
+        .color(cell.tone.color());
     if cell.tone != Tone::Normal && cell.tone != Tone::Muted {
         text = text.strong();
     }
@@ -701,7 +772,12 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
         let end = (start + page_size).min(total_rows);
 
         ui.horizontal(|ui| {
-            ui.heading(RichText::new(state.kind.heading()).size(17.0).strong().color(INK));
+            ui.heading(
+                RichText::new(state.kind.heading())
+                    .size(17.0)
+                    .strong()
+                    .color(INK),
+            );
             let label = if state.search.trim().is_empty() {
                 format!("{total_rows} records")
             } else {
@@ -710,7 +786,10 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
             ui.label(RichText::new(label).size(11.5).color(MUTED));
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.add_enabled(page + 1 < pages, secondary_button("Next ›")).clicked() {
+                if ui
+                    .add_enabled(page + 1 < pages, secondary_button("Next ›"))
+                    .clicked()
+                {
                     page_req = Some(page + 1);
                 }
                 ui.label(
@@ -718,7 +797,10 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
                         .size(11.5)
                         .color(MUTED),
                 );
-                if ui.add_enabled(page > 0, secondary_button("‹ Prev")).clicked() {
+                if ui
+                    .add_enabled(page > 0, secondary_button("‹ Prev"))
+                    .clicked()
+                {
                     page_req = Some(page - 1);
                 }
                 ui.add_space(10.0);
@@ -727,7 +809,10 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
                     .width(96.0)
                     .show_ui(ui, |ui| {
                         for size in [25usize, 50, 100, 250] {
-                            if ui.selectable_label(page_size == size, format!("{size} rows")).clicked() {
+                            if ui
+                                .selectable_label(page_size == size, format!("{size} rows"))
+                                .clicked()
+                            {
                                 size_req = Some(size);
                             }
                         }
@@ -761,10 +846,18 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
                                 } else {
                                     ""
                                 };
-                                let text = RichText::new(format!("{}{}", column.title.to_uppercase(), arrow))
-                                    .size(10.5)
-                                    .strong()
-                                    .color(if active { PURPLE } else { MUTED });
+                                let text = RichText::new(format!(
+                                    "{}{}",
+                                    column.title.to_uppercase(),
+                                    arrow
+                                ))
+                                .size(10.5)
+                                .strong()
+                                .color(if active {
+                                    PURPLE
+                                } else {
+                                    MUTED
+                                });
                                 let label = Label::new(text).sense(Sense::click());
 
                                 let response = if column.kind.right_aligned() {
@@ -813,12 +906,16 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
                                     } else {
                                         String::new()
                                     };
-                                    let rich = RichText::new(text).size(12.0).strong().color(PURPLE);
+                                    let rich =
+                                        RichText::new(text).size(12.0).strong().color(PURPLE);
                                     if column.kind.right_aligned() {
-                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                            ui.set_min_width(column.kind.min_width());
-                                            ui.label(rich);
-                                        });
+                                        ui.with_layout(
+                                            Layout::right_to_left(Align::Center),
+                                            |ui| {
+                                                ui.set_min_width(column.kind.min_width());
+                                                ui.label(rich);
+                                            },
+                                        );
                                     } else {
                                         ui.label(rich);
                                     }
@@ -838,9 +935,11 @@ fn draw_table(ui: &mut egui::Ui, state: &mut ReportState) {
                     };
                     ui.label(RichText::new(headline).size(14.0).strong().color(INK));
                     ui.label(
-                        RichText::new("Try a different date range, a period preset or clear the search.")
-                            .size(11.5)
-                            .color(MUTED),
+                        RichText::new(
+                            "Try a different date range, a period preset or clear the search.",
+                        )
+                        .size(11.5)
+                        .color(MUTED),
                     );
                 });
                 ui.add_space(16.0);
@@ -902,7 +1001,11 @@ fn visible_rows(state: &ReportState) -> Vec<&ReportRow> {
                 (Some(p), Some(q)) => p.partial_cmp(&q).unwrap_or(Ordering::Equal),
                 _ => x.text.to_lowercase().cmp(&y.text.to_lowercase()),
             };
-            if state.sort_desc { order.reverse() } else { order }
+            if state.sort_desc {
+                order.reverse()
+            } else {
+                order
+            }
         });
     }
 
@@ -920,7 +1023,10 @@ fn csv_escape(value: &str) -> String {
 }
 
 fn csv_line(values: impl Iterator<Item = String>) -> String {
-    let mut line = values.map(|value| csv_escape(&value)).collect::<Vec<_>>().join(",");
+    let mut line = values
+        .map(|value| csv_escape(&value))
+        .collect::<Vec<_>>()
+        .join(",");
     line.push_str("\r\n");
     line
 }
@@ -963,7 +1069,8 @@ fn export_csv(state: &ReportState) -> Result<String, String> {
         state.from_date,
         state.to_date
     ));
-    std::fs::write(&path, out).map_err(|e| format!("Export failed: could not write the file ({e})."))?;
+    std::fs::write(&path, out)
+        .map_err(|e| format!("Export failed: could not write the file ({e})."))?;
 
     Ok(path.display().to_string())
 }
@@ -1030,7 +1137,9 @@ fn load_report(app: &AsterApp, state: &mut ReportState) {
 }
 
 fn cols(list: &[(&'static str, ColKind)]) -> Vec<Column> {
-    list.iter().map(|&(title, kind)| Column { title, kind }).collect()
+    list.iter()
+        .map(|&(title, kind)| Column { title, kind })
+        .collect()
 }
 
 fn text_at(row: &Row<'_>, index: usize) -> rusqlite::Result<String> {
@@ -1089,16 +1198,30 @@ fn distinct(rows: &[ReportRow], index: usize) -> usize {
 }
 
 fn percent(part: i64, whole: i64) -> f64 {
-    if whole > 0 { part as f64 * 100.0 / whole as f64 } else { 0.0 }
+    if whole > 0 {
+        part as f64 * 100.0 / whole as f64
+    } else {
+        0.0
+    }
 }
 
 fn average(total: i64, count: usize) -> i64 {
     if count > 0 { total / count as i64 } else { 0 }
 }
 
-fn set_breakdown(state: &mut ReportState, title: &str, mut items: Vec<(String, i64)>, total: i64, limit: usize) {
+fn set_breakdown(
+    state: &mut ReportState,
+    title: &str,
+    mut items: Vec<(String, i64)>,
+    total: i64,
+    limit: usize,
+) {
     items.truncate(limit);
-    state.breakdown = Some(Breakdown { title: title.to_owned(), items, total });
+    state.breakdown = Some(Breakdown {
+        title: title.to_owned(),
+        items,
+        total,
+    });
 }
 
 fn load_sales(connection: &Connection, state: &mut ReportState) -> Result<(), String> {
@@ -1164,8 +1287,18 @@ fn load_sales(connection: &Connection, state: &mut ReportState) -> Result<(), St
     let due = sum_col(&state.rows, 9);
 
     state.metrics = vec![
-        metric("Invoices", count.to_string(), format!("Average {}", money(average(total, count))), PURPLE),
-        metric("Sales total", money(total), format!("Taxable {}", money(taxable)), BLUE),
+        metric(
+            "Invoices",
+            count.to_string(),
+            format!("Average {}", money(average(total, count))),
+            PURPLE,
+        ),
+        metric(
+            "Sales total",
+            money(total),
+            format!("Taxable {}", money(taxable)),
+            BLUE,
+        ),
         metric(
             "Amount received",
             money(received),
@@ -1175,7 +1308,11 @@ fn load_sales(connection: &Connection, state: &mut ReportState) -> Result<(), St
         metric(
             "Outstanding",
             money(due),
-            if due > 0 { "Unpaid balance on these invoices" } else { "Everything is settled" },
+            if due > 0 {
+                "Unpaid balance on these invoices"
+            } else {
+                "Everything is settled"
+            },
             if due > 0 { RED } else { GREEN },
         ),
     ];
@@ -1317,18 +1454,42 @@ fn load_stock(connection: &Connection, state: &mut ReportState) -> Result<(), St
     let products = distinct(&state.rows, 0);
     let quantity = sum_col(&state.rows, 4);
     let value = sum_col(&state.rows, 6);
-    let expired = state.rows.iter().filter(|r| r.cells[7].text == "Expired").count();
-    let expiring = state.rows.iter().filter(|r| r.cells[7].text == "Expiring soon").count();
+    let expired = state
+        .rows
+        .iter()
+        .filter(|r| r.cells[7].text == "Expired")
+        .count();
+    let expiring = state
+        .rows
+        .iter()
+        .filter(|r| r.cells[7].text == "Expiring soon")
+        .count();
 
     state.metrics = vec![
-        metric("Active batches", batches.to_string(), format!("{products} products"), PURPLE),
-        metric("Quantity on hand", format!("{:.3}", quantity as f64 / 1000.0), "Across all batches", BLUE),
+        metric(
+            "Active batches",
+            batches.to_string(),
+            format!("{products} products"),
+            PURPLE,
+        ),
+        metric(
+            "Quantity on hand",
+            format!("{:.3}", quantity as f64 / 1000.0),
+            "Across all batches",
+            BLUE,
+        ),
         metric("Stock valuation", money(value), "At purchase rate", GREEN),
         metric(
             "Needs attention",
             (expired + expiring).to_string(),
             format!("{expired} expired · {expiring} within 90 days"),
-            if expired > 0 { RED } else if expiring > 0 { AMBER } else { GREEN },
+            if expired > 0 {
+                RED
+            } else if expiring > 0 {
+                AMBER
+            } else {
+                GREEN
+            },
         ),
     ];
 
@@ -1417,7 +1578,12 @@ fn load_receivables(connection: &Connection, state: &mut ReportState) -> Result<
     }
 
     state.metrics = vec![
-        metric("Invoices due", count.to_string(), format!("{customers} customers"), PURPLE),
+        metric(
+            "Invoices due",
+            count.to_string(),
+            format!("{customers} customers"),
+            PURPLE,
+        ),
         metric("Outstanding", money(outstanding), "Total receivable", RED),
         metric(
             "Older than 30 days",
@@ -1431,7 +1597,13 @@ fn load_receivables(connection: &Connection, state: &mut ReportState) -> Result<
         },
     ];
 
-    let buckets = ["0–30 days", "31–60 days", "61–90 days", "90+ days", "Unknown"];
+    let buckets = [
+        "0–30 days",
+        "31–60 days",
+        "61–90 days",
+        "90+ days",
+        "Unknown",
+    ];
     let sums: HashMap<String, i64> = group_sum(&state.rows, 7, 6).into_iter().collect();
     let items: Vec<(String, i64)> = buckets
         .iter()
@@ -1484,7 +1656,12 @@ fn load_payments(connection: &Connection, state: &mut ReportState) -> Result<(),
 
     let top_mode = modes.first().cloned();
     state.metrics = vec![
-        metric("Receipts", count.to_string(), format!("Average {}", money(average(total, count))), PURPLE),
+        metric(
+            "Receipts",
+            count.to_string(),
+            format!("Average {}", money(average(total, count))),
+            PURPLE,
+        ),
         metric("Collected", money(total), "In the selected period", GREEN),
         match top_mode {
             Some((name, value)) => metric(
@@ -1495,7 +1672,12 @@ fn load_payments(connection: &Connection, state: &mut ReportState) -> Result<(),
             ),
             None => metric("Top payment mode", "—", "No receipts", BLUE),
         },
-        metric("Paying customers", customers.to_string(), "Distinct customers", AMBER),
+        metric(
+            "Paying customers",
+            customers.to_string(),
+            "Distinct customers",
+            AMBER,
+        ),
     ];
 
     set_breakdown(state, "Collections by payment mode", modes, total, 6);
@@ -1576,21 +1758,41 @@ fn load_gst(connection: &Connection, state: &mut ReportState) -> Result<(), Stri
     let net = output_tax - input_tax;
 
     state.metrics = vec![
-        metric("Taxable sales", money(taxable), format!("{} HSN codes", state.rows.len()), BLUE),
+        metric(
+            "Taxable sales",
+            money(taxable),
+            format!("{} HSN codes", state.rows.len()),
+            BLUE,
+        ),
         metric(
             "Output tax",
             money(output_tax),
-            format!("CGST {} · SGST {} · IGST {}", money(cgst), money(sgst), money(igst)),
+            format!(
+                "CGST {} · SGST {} · IGST {}",
+                money(cgst),
+                money(sgst),
+                money(igst)
+            ),
             PURPLE,
         ),
         metric(
             "Input tax credit",
             money(input_tax),
-            format!("CGST {} · SGST {} · IGST {}", money(in_cgst), money(in_sgst), money(in_igst)),
+            format!(
+                "CGST {} · SGST {} · IGST {}",
+                money(in_cgst),
+                money(in_sgst),
+                money(in_igst)
+            ),
             GREEN,
         ),
         if net >= 0 {
-            metric("Net GST payable", money(net), "Output tax − input credit", if net > 0 { AMBER } else { GREEN })
+            metric(
+                "Net GST payable",
+                money(net),
+                "Output tax − input credit",
+                if net > 0 { AMBER } else { GREEN },
+            )
         } else {
             metric("Input credit surplus", money(-net), "Carry forward", GREEN)
         },
@@ -1641,7 +1843,10 @@ fn fy_range(fy: i32) -> (String, String) {
 fn month_range(fy: i32, month: u32) -> (String, String) {
     let year = if month >= 4 { fy } else { fy + 1 };
     let last = days_in_month(year, month);
-    (format!("{year}-{month:02}-01"), format!("{year}-{month:02}-{last:02}"))
+    (
+        format!("{year}-{month:02}-01"),
+        format!("{year}-{month:02}-{last:02}"),
+    )
 }
 
 fn quarter_range(fy: i32, quarter: usize) -> (String, String) {
@@ -1656,7 +1861,11 @@ fn quarter_range(fy: i32, quarter: usize) -> (String, String) {
 
 fn display_date(iso: &str) -> String {
     let p: Vec<&str> = iso.split('-').collect();
-    if p.len() == 3 { format!("{}-{}-{}", p[2], p[1], p[0]) } else { iso.to_owned() }
+    if p.len() == 3 {
+        format!("{}-{}-{}", p[2], p[1], p[0])
+    } else {
+        iso.to_owned()
+    }
 }
 
 fn valid_date(value: &str) -> bool {
@@ -1687,8 +1896,18 @@ enum PickerTarget {
 }
 
 const MONTH_NAMES: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
@@ -1765,7 +1984,10 @@ fn open_picker(state: &mut ReportState, target: PickerTarget, anchor: egui::Rect
     state.picker_month = m.clamp(1, 12);
 }
 
-fn draw_date_picker(ctx: &egui::Context, state: &mut ReportState) -> Option<(PickerTarget, String)> {
+fn draw_date_picker(
+    ctx: &egui::Context,
+    state: &mut ReportState,
+) -> Option<(PickerTarget, String)> {
     let target = state.picker?;
     let anchor = state.picker_anchor?;
     let selected = match target {
@@ -1804,9 +2026,13 @@ fn draw_date_picker(ctx: &egui::Context, state: &mut ReportState) -> Option<(Pic
                         ui.add_sized(
                             [108.0, 22.0],
                             Label::new(
-                                RichText::new(format!("{} {}", MONTH_NAMES[(month - 1) as usize], year))
-                                    .strong()
-                                    .color(INK),
+                                RichText::new(format!(
+                                    "{} {}",
+                                    MONTH_NAMES[(month - 1) as usize],
+                                    year
+                                ))
+                                .strong()
+                                .color(INK),
                             ),
                         );
                         if ui.small_button("›").clicked() {
@@ -1834,7 +2060,9 @@ fn draw_date_picker(ctx: &egui::Context, state: &mut ReportState) -> Option<(Pic
                             for name in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] {
                                 ui.add_sized(
                                     [34.0, 20.0],
-                                    Label::new(RichText::new(name).size(10.5).strong().color(MUTED)),
+                                    Label::new(
+                                        RichText::new(name).size(10.5).strong().color(MUTED),
+                                    ),
                                 );
                             }
                             ui.end_row();

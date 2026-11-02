@@ -1,6 +1,6 @@
 # ASTER Development Progress
 
-> **Project status:** Core application foundation, master-data screens, transaction entry, and Stock Overview are implemented. The latest Stock Overview changes have been run and checked successfully with no reported compiler warnings or errors. Remaining work is tracked by phase below; items are marked complete only where implementation or verification has been established.
+> **Project status (updated 2026-11-02):** Foundation, business masters, purchase/sales workflows, Stock Overview, Accounts, Payment Register, and Reports are implemented. The user confirmed that the corrected `reports.rs` builds and works correctly. Remaining work is focused on broader regression testing, unfinished workflows, System Settings, and release readiness.
 
 ## Phase 1 — Foundation and Launch Flow
 
@@ -62,15 +62,26 @@
 
 **Acceptance:** The current Stock Overview implementation and five filters are complete and runtime-verified. Sorting and deeper data validation remain open.
 
-## Phase 5 — Remaining Business Modules and Reporting
+## Phase 5 — Accounts, Payment Register, and Reporting
 
-- [ ] Review the remaining workspace tabs and identify which are placeholders versus implemented workflows.
-- [ ] Implement outstanding business modules according to the agreed scope.
-- [ ] Add required reports and summaries, with financial-year-aware date filtering.
-- [ ] Validate report totals against source transactions.
-- [ ] Add export/print workflows where required by the business process.
+- [x] Implement Accounts.
+- [x] Implement the invoice/payment register UI.
+- [x] Implement Reports screen and report selection.
+- [x] Add sales and purchase reporting.
+- [x] Add stock reporting and expiry indicators.
+- [x] Add receivables reporting with ageing.
+- [x] Add payment reporting.
+- [x] Add GST/HSN summary reporting.
+- [x] Add financial-year-aware date filtering and quick date ranges.
+- [x] Add report search and column sorting.
+- [x] Add pagination for report rows.
+- [x] Add CSV export.
+- [x] Refine Reports UI spacing, cards, filters, metrics and table layout.
+- [x] User confirmed the corrected `reports.rs` works correctly (2026-11-02).
+- [ ] Reconcile report totals against representative source transactions and edge cases.
+- [ ] Add print/PDF export if required.
 
-**Acceptance:** Pending scope review and implementation.
+**Acceptance:** Accounts, Payment Register and Reports are implemented. Reports have been confirmed working by the user; reconciliation and additional export/print validation remain open.
 
 ## Phase 6 — User Administration and Access Control
 
@@ -105,6 +116,32 @@
 - `aster/src/date.rs` — date and financial-year helpers.
 - `aster/src/theme.rs` — shared UI theme.
 - `aster/src/logging.rs` — startup and application logging.
-- Feature-specific modules — business masters, transaction workflows, and Stock Overview.
+- Feature-specific modules — business masters, purchase/sales workflows, Stock Overview, Accounts, Payment Register, and Reports.
 
 > **Maintenance note:** Update this file when a phase changes state. Mark a task complete only after the implementation exists and its relevant check or manual verification has passed. Keep unresolved work in the appropriate phase rather than removing it from the history.
+
+
+## Latest Update — 2026-11-02 (Accounts and Reports)
+
+### Completed and confirmed
+
+- [x] Accounts module implemented.
+- [x] Invoice/payment register UI implemented.
+- [x] Reports module completed and corrected in `src/screens/reports.rs`.
+- [x] Report categories cover Sales, Purchases, Stock, Receivables, Payments, and GST/HSN.
+- [x] Report filters include financial-year dates, custom date ranges, quick ranges, and search.
+- [x] Report tables support column sorting and pagination.
+- [x] CSV export implemented.
+- [x] Stock expiry indicators and receivables ageing included.
+- [x] Reports UI spacing and layout refined.
+- [x] User confirmed the corrected Reports implementation is working.
+
+### Still pending
+
+- [ ] Validate report calculations against known transaction fixtures and edge cases.
+- [ ] Complete end-to-end consistency checks across purchases, stock, sales, receipts, and reports.
+- [ ] Implement System Settings beyond its navigation entry.
+- [ ] Complete invoice history, print/PDF, returns and reversal workflows where required.
+- [ ] Complete backup/restore, packaging, migration, and release testing.
+
+**Update note:** This section supersedes the earlier Phase 5 statement that Accounts and Reports were not implemented. Earlier historical notes are retained for traceability; the struck-through wording is no longer current.

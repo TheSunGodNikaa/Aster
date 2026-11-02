@@ -24,6 +24,8 @@ pub(crate) mod accounts;
 
 pub(crate) mod reports;
 
+pub(crate) mod settings;
+
 pub(crate) fn show_error(ctx: &egui::Context, error: &str) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {

@@ -228,7 +228,8 @@ impl Form {
         }
 
         let pincode = self.pincode.trim();
-        if !pincode.is_empty() && !(pincode.len() == 6 && pincode.chars().all(|c| c.is_ascii_digit()))
+        if !pincode.is_empty()
+            && !(pincode.len() == 6 && pincode.chars().all(|c| c.is_ascii_digit()))
         {
             return Err(ferr(FieldId::Pincode, "PIN code must be 6 digits."));
         }
@@ -689,7 +690,11 @@ fn directory(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, h: f32, now: f64)
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
-                    paint_search_icon(ui.painter(), r.center(), MUTED.lerp_to_gamma(PURPLE, focus_t));
+                    paint_search_icon(
+                        ui.painter(),
+                        r.center(),
+                        MUTED.lerp_to_gamma(PURPLE, focus_t),
+                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if !s.search.is_empty()
                             && ui
@@ -915,7 +920,11 @@ fn editor(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, h: f32, now: f64) {
         s.dismiss_toast();
     } else if !s.message.is_empty() {
         let remaining = (ttl - age).max(0.0);
-        let step = if age < 0.3 { 0.016 } else { remaining.min(0.25) };
+        let step = if age < 0.3 {
+            0.016
+        } else {
+            remaining.min(0.25)
+        };
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f64(step.max(0.016)));
     }
@@ -1210,7 +1219,12 @@ fn editor_body(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, now: f64) {
 
         if !existing {
             section(ui, "STATUS", "");
-            switch(ui, "supplier-active", &mut s.form.active, "Supplier is active");
+            switch(
+                ui,
+                "supplier-active",
+                &mut s.form.active,
+                "Supplier is active",
+            );
         }
         ui.add_space(12.0);
     });
@@ -1236,7 +1250,13 @@ fn footer(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, now: f64) {
             save(s, app, now);
             ui.ctx().request_repaint();
         }
-        if button(ui, if existing { "Close" } else { "Clear" }, Kind::Secondary).clicked() {
+        if button(
+            ui,
+            if existing { "Close" } else { "Clear" },
+            Kind::Secondary,
+        )
+        .clicked()
+        {
             if existing {
                 request_nav(s, app, Nav::New, now);
             } else {
@@ -1296,7 +1316,10 @@ fn toast(ui: &mut egui::Ui, s: &mut State, now: f64) {
 
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
     let hover = ui.interact(rect, Id::new("toast-body"), Sense::hover());
-    let x_rect = Rect::from_center_size(pos2(rect.right() - 20.0, rect.center().y), Vec2::splat(24.0));
+    let x_rect = Rect::from_center_size(
+        pos2(rect.right() - 20.0, rect.center().y),
+        Vec2::splat(24.0),
+    );
     let x_resp = ui
         .interact(x_rect, Id::new("toast-close"), Sense::click())
         .on_hover_cursor(CursorIcon::PointingHand);
@@ -1317,7 +1340,11 @@ fn toast(ui: &mut egui::Ui, s: &mut State, now: f64) {
     );
     let gy = rect.center().y - g.size().y / 2.0;
     p.galley(pos2(rect.left() + 38.0, gy), g, fg.gamma_multiply(alpha));
-    let x_col = if x_resp.hovered() { fg } else { fg.gamma_multiply(0.7) };
+    let x_col = if x_resp.hovered() {
+        fg
+    } else {
+        fg.gamma_multiply(0.7)
+    };
     p.text(
         x_rect.center(),
         Align2::CENTER_CENTER,
@@ -1381,7 +1408,10 @@ fn manufacturers_section(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, now: 
         let msg = if s.manufacturers.is_empty() {
             "No manufacturers yet.".to_owned()
         } else {
-            format!("No match for “{}”. Press Add to create it.", s.new_manufacturer_name.trim())
+            format!(
+                "No match for “{}”. Press Add to create it.",
+                s.new_manufacturer_name.trim()
+            )
         };
         empty_box(ui, &msg);
         return;
@@ -1417,7 +1447,11 @@ fn add_manufacturer(s: &mut State, app: &AsterApp, now: f64) {
     if let Some(id) = existing {
         set_membership(&mut s.manufacturer_ids, id, true);
         s.new_manufacturer_name.clear();
-        s.toast(format!("'{name}' already exists and is now selected."), false, now);
+        s.toast(
+            format!("'{name}' already exists and is now selected."),
+            false,
+            now,
+        );
         return;
     }
     let result = app
@@ -1908,10 +1942,8 @@ fn button(ui: &mut egui::Ui, label: &str, kind: Kind) -> egui::Response {
 }
 
 fn link_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
-    ui.add(
-        egui::Button::new(RichText::new(text).size(11.5).strong().color(PURPLE)).frame(false),
-    )
-    .on_hover_cursor(CursorIcon::PointingHand)
+    ui.add(egui::Button::new(RichText::new(text).size(11.5).strong().color(PURPLE)).frame(false))
+        .on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn chip(ui: &mut egui::Ui, text: &str, on: bool) -> egui::Response {
@@ -2046,8 +2078,7 @@ fn text_galley(
     color: Color32,
     max_w: f32,
 ) -> Arc<egui::Galley> {
-    let mut job =
-        LayoutJob::simple_singleline(text.to_owned(), FontId::proportional(size), color);
+    let mut job = LayoutJob::simple_singleline(text.to_owned(), FontId::proportional(size), color);
     job.wrap.max_width = max_w.max(1.0);
     job.wrap.max_rows = 1;
     job.wrap.break_anywhere = true;

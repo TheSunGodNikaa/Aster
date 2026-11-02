@@ -146,7 +146,7 @@ Module: `src/screens/workspace.rs`.
 -   [x] Company Settings, Customers, Suppliers, Products/Medicines, Purchase, and Sales Invoice are routed to dedicated screen modules.
 -   [x] Stock is now routed to a dedicated stock overview screen.
 -   [x] Company Settings, Customers, Suppliers, Products/Medicines, Purchase, Sales Invoice, and Stock are routed to dedicated screen modules.
--   [~] Accounts, Reports, and System Settings remain navigation entries without confirmed dedicated functional implementations.
+-   ~~[~] Accounts, Reports, and System Settings remain navigation entries without confirmed dedicated functional implementations.~~ (Superseded 2026-11-02: Accounts and Reports are implemented; System Settings remains pending.)
 -   [ ] Verify tab switching, closing tabs, duplicate-tab prevention, and unsaved-change warnings.
 -   [ ] Verify tab switching, closing tabs, duplicate-tab prevention,
     and unsaved-change warnings.
@@ -167,7 +167,7 @@ Module: `src/screens/workspace.rs`.
 | `src/screens/purchase_entry.rs` | Implemented entry/posting screen | Purchase draft UI and posting call; database posting writes purchase document/items, batches, stock quantities and stock-movement records. Runtime acceptance tests and purchase history/return workflow remain. |
 | `src/screens/sales_invoice.rs` | Implemented invoice entry/posting screen | Customer/product selection, invoice lines/totals and posting; date helper converts Indian `DD/MM/YYYY` input to validated ISO date. Database posting saves invoice/items, allocates and deducts batch stock, records stock movements and received payment. Invoice history, preview, print/PDF and returns are not confirmed implemented. |
 | `src/screens/stock.rs` | Implemented stock overview screen; latest code was reported working before filter restoration | Loads batch records through `db.stock_batches(year, search)`, aggregates stock by product, shows product count/on-hand quantity/stock valuation, supports product selection and a batch detail panel with expiry, free quantity, MRP and sale rate. All/Low/Expiring/Expired/Out-of-stock filters have now been restored in the current source. Column sorting and stock movement history are not implemented/confirmed. Re-run `cargo check` after the latest filter edits. |
-| `src/screens/workspace.rs` | Updated routing and workspace | Sidebar includes Stock, Accounts, Reports and System Settings. Company, Customer, Supplier, Product, Purchase and Sales screens are routed to dedicated modules. Accounts, Reports and System Settings remain to be implemented; dashboard metrics are not yet confirmed database-driven. |
+| `src/screens/workspace.rs` | Updated routing and workspace | Sidebar includes Stock, Accounts, Reports and System Settings. Company, Customer, Supplier, Product, Purchase and Sales screens are routed to dedicated modules. ~~Accounts, Reports and System Settings remain to be implemented;~~ Accounts and Reports are now implemented; System Settings remains pending. Dashboard metrics are not yet confirmed database-driven. |
 | `src/screens/year_date.rs`, `src/screens/login.rs` | Present | Financial-year/date flow and sign-in; continue validation of edge cases and credential persistence. |
 | `src/app.rs`, `src/date.rs`, `src/theme.rs`, `src/logging.rs`, `src/main.rs` | Expected project modules; not included in this ZIP | Their latest exact contents could not be reviewed from this archive. |
 
@@ -348,23 +348,23 @@ persistence/rollback acceptance tests are still pending.
 
 -   [~] Customer/supplier opening-balance and credit-limit fields exist in master-data schema.
 -   [~] Sales invoice received amount/payment mode is stored; supplier purchase documents exist.
--   [ ] Implement Accounts screen and database APIs for customer receipts and supplier payments.
+-   ~~[ ] Implement Accounts screen and database APIs for customer receipts and supplier payments.~~ [x] Accounts module implemented (user-reported, 2026-11-02).
 -   [ ] Implement customer/supplier ledgers, outstanding balances, allocations/settlements and opening-balance handling.
 -   [ ] Define correction/reversal rules and preserve consistency with posted source documents.
 -   [ ] Add account reconciliation and transaction rollback tests.
 
-**Phase status:** Foundational fields and transaction payment data exist, but a dedicated Accounts workflow and ledger queries are not implemented in the supplied source.
+**Phase status:** ~~Foundational fields and transaction payment data exist, but a dedicated Accounts workflow and ledger queries are not implemented in the supplied source.~~ Accounts is now implemented (2026-11-02). Further ledger reconciliation and workflow regression tests remain.
 
 ### Phase 9 --- Reports
 
--   [ ] Implement Reports screen and parameter/filter controls.
--   [ ] Add sales/purchase summaries and product-wise sales reports.
--   [ ] Add current stock, stock movement, batch and expiry reports.
--   [ ] Add customer/supplier ledger and outstanding reports.
--   [ ] Add receipt/payment and GST/HSN summaries.
--   [ ] Support date and financial-year filters, export/print and reconciliation tests.
+-   ~~[ ] Implement Reports screen and parameter/filter controls.~~ [x] Reports screen implemented and working.
+-   ~~[ ] Add sales/purchase summaries and product-wise sales reports.~~ [x] Sales and purchase report categories implemented.
+-   ~~[ ] Add current stock, stock movement, batch and expiry reports.~~ [x] Stock report with expiry indicators implemented; stock movement reporting remains a separate future enhancement if needed.
+-   ~~[ ] Add customer/supplier ledger and outstanding reports.~~ [x] Receivables/outstanding ageing report implemented; dedicated customer/supplier ledger reporting can be expanded later.
+-   ~~[ ] Add receipt/payment and GST/HSN summaries.~~ [x] Payment and GST/HSN report categories implemented.
+-   ~~[ ] Support date and financial-year filters, export/print and reconciliation tests.~~ [x] Financial-year/custom date filtering, quick ranges, search, sorting, pagination and CSV export implemented. [ ] Reconciliation and print/PDF validation remain.
 
-**Phase status:** Navigation entry exists, but no dedicated reports implementation or report-query API is confirmed in the uploaded source.
+**Phase status:** Reports implemented and user-confirmed working on 2026-11-02. Calculation reconciliation, edge-case tests and optional print/PDF remain open.
 
 ### Phase 9A --- System Settings (distinct from Company Settings)
 
@@ -442,7 +442,7 @@ persistence/rollback acceptance tests are still pending.
 8.  [ ] Re-run `cargo fmt`, `cargo check`, `cargo test`, and `cargo run` against the latest combined working tree; verify the stock filters and check for warnings.
 9.  [ ] Restore column sorting from the earlier iteration, once its original sorting options/behaviour are identified.
 10. [ ] Add stock movement history and controlled adjustment workflows with tests.
-11. [ ] Implement Accounts and receipt/payment/ledger APIs, then Reports using verified database queries.
+11. ~~[ ] Implement Accounts and receipt/payment/ledger APIs, then Reports using verified database queries.~~ [x] Accounts and Reports implemented; focus next on reconciliation and regression testing.
 12. [ ] Implement System Settings separately from Company Settings.
 13. [ ] Add invoice history/preview/print/PDF after core transaction workflows are tested.
 14. [ ] Review `git diff`, run regression tests, commit the reviewed milestone, and update this file again.
@@ -462,7 +462,7 @@ feature complete only when:
 
 ------------------------------------------------------------------------
 
-**Current overall assessment:** The uploaded source contains the application shell plus dedicated Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry, and Sales Invoice screens. `database.rs` includes year-scoped master-data APIs and purchase/sales posting methods that update batch stock and movement records. Stock, Accounts, Reports, and System Settings remain the next major screens; invoice history and print/PDF are also not confirmed implemented. Previously reported `cargo fmt`, `cargo check`, `cargo test`, and sign-in success apply to an earlier project state and must be rerun against the current working tree. The final-release requirement to keep data inside the ASTER application folder is documented but not implemented; current development paths remain unchanged by design.
+**Current overall assessment:** The uploaded source contains the application shell plus dedicated Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry, and Sales Invoice screens. `database.rs` includes year-scoped master-data APIs and purchase/sales posting methods that update batch stock and movement records. ~~Stock, Accounts, Reports, and System Settings remain the next major screens;~~ Stock, Accounts, and Reports are implemented; System Settings remains pending; invoice history and print/PDF are still not confirmed implemented. Previously reported `cargo fmt`, `cargo check`, `cargo test`, and sign-in success apply to an earlier project state and must be rerun against the current working tree. The final-release requirement to keep data inside the ASTER application folder is documented but not implemented; current development paths remain unchanged by design.
 
 ------------------------------------------------------------------------
 
@@ -487,7 +487,7 @@ The uploaded `screens.zip` contains `screens/` modules for Company Settings, Cus
 
 1. **Stock** — add read-only stock overview, batch details, expiry/low-stock alerts and movement history; add tested database query methods first. Then consider adjustments with audited movement records.
 2. **Accounts** — receipts, supplier payments, customer/supplier ledgers and outstanding balances.
-3. **Reports** — sales/purchase, stock/expiry, outstanding, receipt/payment and GST/HSN reports using verified query APIs.
+3. ~~**Reports** — sales/purchase, stock/expiry, outstanding, receipt/payment and GST/HSN reports using verified query APIs.~~ **Reports implemented (2026-11-02);** reconcile calculations and extend print/PDF if needed.
 4. **System Settings** — application preferences, backup/restore and configurable data-location behaviour.
 5. **Sales completion** — invoice history, preview, printing/PDF, and return/reversal workflows.
 
@@ -525,10 +525,88 @@ This update supplements the earlier archive/source-review notes above. It does n
 ### Current next implementation priorities
 
 1. **Finish and verify Stock** — build/test the filter changes, then restore sorting and add movement history/adjustments.
-2. **Accounts** — receipts, supplier payments, customer/supplier ledgers, allocations, and outstanding balances.
+2. ~~**Accounts** — receipts, supplier payments, customer/supplier ledgers, allocations, and outstanding balances.~~ **Accounts implemented (2026-11-02);** continue workflow and balance reconciliation tests.
 3. **Reports** — sales/purchase, stock/expiry, ledger/outstanding, receipts/payments, and GST/HSN reports.
 4. **System Settings** — application preferences, backup/restore, and data-location settings.
 5. **Sales completion** — saved invoice history, preview, printing/PDF, returns, and reversal rules.
 6. **Reliability/release** — regression tests, backups, packaging, safe upgrades, and keeping business data in the chosen ASTER application folder.
 
 **Current overall assessment (2026-10-26):** The application shell and dedicated Company Settings, Customer Master, Supplier Master, Product Master, Purchase Entry, Sales Invoice, and Stock screens are present in the working project/source history. The Stock screen now uses the database batch query, shows product-level inventory and batch details, and includes the five restored filters. The user previously reported that the stock integration worked; the final filter edits still need a fresh build and filter-by-filter smoke test. Column sorting, Accounts, Reports, System Settings, invoice history/print/PDF, returns, backup/restore, and final packaging remain outstanding. Earlier progress is retained above; this update changes the current status where newer work supersedes the older Stock-not-implemented notes.
+
+
+------------------------------------------------------------------------
+
+## Latest Working-Tree Update --- 2026-11-02 (Accounts, Payment Register and Reports)
+
+This update records the user's confirmation that the corrected Reports implementation is working. It supersedes earlier notes that described Accounts and Reports as missing. Older notes remain struck through where they are no longer current.
+
+### Completed implementation
+
+- [x] Accounts module implemented.
+- [x] Invoice/payment register UI updated/implemented.
+- [x] Reports module implemented in `src/screens/reports.rs` and confirmed working by the user.
+- [x] Report categories: Sales, Purchases, Stock, Receivables, Payments, and GST/HSN.
+- [x] Report date filtering supports the selected financial year and custom date ranges.
+- [x] Quick date ranges implemented, including full financial year, quarters, and month selection.
+- [x] Search across report rows implemented.
+- [x] Column sorting implemented.
+- [x] Pagination implemented.
+- [x] CSV export implemented.
+- [x] Stock expiry indicators implemented in the stock report.
+- [x] Receivables ageing implemented.
+- [x] Summary metric cards and report UI spacing/layout refined.
+
+### Remaining work (not marked complete)
+
+- [ ] Reconcile report totals against known database transactions and manually calculated examples.
+- [ ] Test empty results, large result sets, invalid date ranges, missing optional values, and export edge cases.
+- [ ] Validate Accounts/payment allocation and customer/supplier balances end to end.
+- [ ] Implement System Settings beyond the existing navigation entry.
+- [ ] Add invoice history, preview, print/PDF, returns, and reversal workflows as required.
+- [ ] Add stock movement history and controlled stock adjustments if still in scope.
+- [ ] Complete backup/restore, data-folder migration, packaging, and clean-machine release testing.
+
+### Updated implementation priorities
+
+1. Reconcile Accounts, receipts, sales, purchases, stock, and Reports against representative business scenarios.
+2. Implement System Settings, including preferences and safe backup/restore.
+3. Complete invoice history and print/PDF/return workflows.
+4. Complete stock movement history/adjustments if required by the agreed scope.
+5. Run full regression tests and finish Windows packaging/release readiness.
+
+**Verification note:** Reports working status is based on the user's explicit confirmation. This documentation update did not independently run `cargo fmt`, `cargo check`, `cargo test`, or `cargo run`; those checks should be run against the current local working tree before the next milestone is considered release-verified.
+
+---
+
+## Latest Working-Tree Update — 2026-11-02 (Financial Year Management)
+
+### Completed implementation
+
+- [x] Added a delete control at the right side of each financial-year row.
+- [x] Added confirmation dialog before deleting a financial year.
+- [x] Prevented deletion of the current financial year.
+- [x] Prevented deletion of the last remaining financial year.
+- [x] Added database-level protection against deleting the current financial year.
+- [x] Created a safety ZIP backup before deleting a financial year.
+- [x] Archived the original financial-year database folder instead of permanently deleting it.
+- [x] Removed the deleted financial year from the global financial-year registry.
+- [x] Updated the selected financial year and working date when the selected year is deleted.
+- [x] Added success and error feedback for the deletion operation.
+
+### Safety behaviour
+
+- The current financial year cannot be deleted.
+- At least one registered financial year must remain.
+- A backup is created before the original year folder is moved.
+- Deleted financial-year folders are retained under the `data/deleted` directory.
+- If registry deletion fails, the implementation attempts to restore the original folder.
+
+### Remaining verification
+
+- [ ] Test deletion of an older financial year with existing business records.
+- [ ] Verify the backup ZIP contains the global database and all registered financial-year databases.
+- [ ] Verify archived financial years are not loaded during application startup.
+- [ ] Test deletion failure and recovery scenarios.
+- [ ] Run the full regression test suite.
+
+**Current status:** Financial-year deletion and protection logic implemented. Full backup-integrity and recovery testing remain part of regression testing.

@@ -246,15 +246,20 @@ fn draw_type_selector(ui: &mut Ui, state: &mut State) {
                 ] {
                     let selected = state.kind == kind;
                     let button = egui::Button::new(
-                        RichText::new(label)
-                            .size(14.5)
-                            .strong()
-                            .color(if selected { PURPLE } else { MUTED }),
+                        RichText::new(label).size(14.5).strong().color(if selected {
+                            PURPLE
+                        } else {
+                            MUTED
+                        }),
                     )
                     .fill(if selected { CARD } else { Color32::TRANSPARENT })
                     .stroke(Stroke::new(
                         1.0_f32,
-                        if selected { BORDER } else { Color32::TRANSPARENT },
+                        if selected {
+                            BORDER
+                        } else {
+                            Color32::TRANSPARENT
+                        },
                     ))
                     .corner_radius(CornerRadius::same(9))
                     .min_size(Vec2::new(140.0, 36.0));
@@ -281,7 +286,11 @@ fn draw_metrics(ui: &mut Ui, state: &State) {
     let activity: i64 = state.accounts.iter().map(|a| a.activity(kind)).sum();
     let balance: i64 = state.accounts.iter().map(|a| a.balance(kind)).sum();
     let over = state.accounts.iter().filter(|a| a.over_limit(kind)).count();
-    let with_balance = state.accounts.iter().filter(|a| a.balance(kind) > 0).count();
+    let with_balance = state
+        .accounts
+        .iter()
+        .filter(|a| a.balance(kind) > 0)
+        .count();
 
     ui.columns(4, |cols| {
         metric(
@@ -293,14 +302,22 @@ fn draw_metrics(ui: &mut Ui, state: &State) {
         );
         metric(
             &mut cols[1],
-            if kind == AccountType::Customers { "POSTED SALES" } else { "POSTED PURCHASES" },
+            if kind == AccountType::Customers {
+                "POSTED SALES"
+            } else {
+                "POSTED PURCHASES"
+            },
             &money(activity),
             "Current financial year",
             BLUE,
         );
         metric(
             &mut cols[2],
-            if kind == AccountType::Customers { "RECEIVABLES" } else { "PAYABLES" },
+            if kind == AccountType::Customers {
+                "RECEIVABLES"
+            } else {
+                "PAYABLES"
+            },
             &money(balance),
             &format!("{with_balance} accounts with a balance"),
             ORANGE,
@@ -310,7 +327,11 @@ fn draw_metrics(ui: &mut Ui, state: &State) {
                 &mut cols[3],
                 "OVER CREDIT LIMIT",
                 &over.to_string(),
-                if over > 0 { "Needs attention" } else { "All within limit" },
+                if over > 0 {
+                    "Needs attention"
+                } else {
+                    "All within limit"
+                },
                 if over > 0 { RED } else { GREEN },
             );
         } else {
@@ -354,12 +375,28 @@ fn portfolio_card(ui: &mut Ui, state: &State) {
 
         let (segs, top, bottom) = if kind == AccountType::Customers {
             let outstanding = (sales - received).max(0);
-            let pct = if sales > 0 { received as f64 / sales as f64 * 100.0 } else { 0.0 };
+            let pct = if sales > 0 {
+                received as f64 / sales as f64 * 100.0
+            } else {
+                0.0
+            };
             (
                 vec![
-                    Seg { label: "Received", amount: received.max(0), color: GREEN },
-                    Seg { label: "Outstanding sales", amount: outstanding, color: ORANGE },
-                    Seg { label: "Opening balances", amount: opening, color: BLUE },
+                    Seg {
+                        label: "Received",
+                        amount: received.max(0),
+                        color: GREEN,
+                    },
+                    Seg {
+                        label: "Outstanding sales",
+                        amount: outstanding,
+                        color: ORANGE,
+                    },
+                    Seg {
+                        label: "Opening balances",
+                        amount: opening,
+                        color: BLUE,
+                    },
                 ],
                 format!("{pct:.0}%"),
                 "of sales collected".to_owned(),
@@ -367,8 +404,16 @@ fn portfolio_card(ui: &mut Ui, state: &State) {
         } else {
             (
                 vec![
-                    Seg { label: "Opening balances", amount: opening, color: BLUE },
-                    Seg { label: "Purchases", amount: purchases.max(0), color: PURPLE },
+                    Seg {
+                        label: "Opening balances",
+                        amount: opening,
+                        color: BLUE,
+                    },
+                    Seg {
+                        label: "Purchases",
+                        amount: purchases.max(0),
+                        color: PURPLE,
+                    },
                 ],
                 compact(opening + purchases),
                 "total payable".to_owned(),
@@ -432,7 +477,11 @@ fn top_accounts_card(ui: &mut Ui, app: &AsterApp, state: &mut State) {
                         .strong()
                         .color(GREEN),
                 );
-                ui.label(RichText::new("Every account is settled.").size(12.5).color(MUTED));
+                ui.label(
+                    RichText::new("Every account is settled.")
+                        .size(12.5)
+                        .color(MUTED),
+                );
             });
             return;
         }
@@ -454,12 +503,18 @@ fn top_accounts_card(ui: &mut Ui, app: &AsterApp, state: &mut State) {
                     load_documents(app, state);
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(money(*amount)).size(14.0).strong().color(ORANGE));
+                    ui.label(
+                        RichText::new(money(*amount))
+                            .size(14.0)
+                            .strong()
+                            .color(ORANGE),
+                    );
                 });
             });
             let (rect, _) =
                 ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(4), PURPLE_BG);
             let w = rect.width() * (*amount as f32 / max as f32);
             ui.painter().rect_filled(
                 Rect::from_min_size(rect.min, Vec2::new(w, rect.height())),
@@ -499,7 +554,11 @@ fn draw_account_list(ui: &mut Ui, app: &AsterApp, state: &mut State) {
         let kind = state.kind;
         section_title(
             ui,
-            if kind == AccountType::Customers { "Customer accounts" } else { "Supplier accounts" },
+            if kind == AccountType::Customers {
+                "Customer accounts"
+            } else {
+                "Supplier accounts"
+            },
             "Select an account to see its details and documents",
         );
         ui.add_space(12.0);
@@ -561,9 +620,13 @@ fn draw_account_list(ui: &mut Ui, app: &AsterApp, state: &mut State) {
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("{} of {} accounts", view.len(), state.accounts.len()))
-                    .size(12.5)
-                    .color(MUTED),
+                RichText::new(format!(
+                    "{} of {} accounts",
+                    view.len(),
+                    state.accounts.len()
+                ))
+                .size(12.5)
+                .color(MUTED),
             );
             if !state.search.is_empty() || state.account_filter != AccountFilter::All {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -740,7 +803,8 @@ fn draw_profile(ui: &mut Ui, account: &Account, kind: AccountType) {
                 };
                 let (rect, _) =
                     ui.allocate_exact_size(Vec2::new(ui.available_width(), 12.0), Sense::hover());
-                ui.painter().rect_filled(rect, CornerRadius::same(6), PURPLE_BG);
+                ui.painter()
+                    .rect_filled(rect, CornerRadius::same(6), PURPLE_BG);
                 ui.painter().rect_filled(
                     Rect::from_min_size(
                         rect.min,
@@ -775,7 +839,11 @@ fn draw_profile(ui: &mut Ui, account: &Account, kind: AccountType) {
 fn draw_balance_chart(ui: &mut Ui, account: &Account, kind: AccountType) {
     card(ui, |ui| {
         ui.set_min_height(290.0);
-        section_title(ui, "Balance distribution", "Breakdown for the selected account");
+        section_title(
+            ui,
+            "Balance distribution",
+            "Breakdown for the selected account",
+        );
         ui.add_space(10.0);
 
         let (segs, top, bottom): (Vec<Seg>, String, String) = match kind {
@@ -788,9 +856,21 @@ fn draw_balance_chart(ui: &mut Ui, account: &Account, kind: AccountType) {
                 };
                 (
                     vec![
-                        Seg { label: "Received", amount: account.received.max(0), color: GREEN },
-                        Seg { label: "Outstanding", amount: outstanding, color: ORANGE },
-                        Seg { label: "Opening balance", amount: account.opening.max(0), color: BLUE },
+                        Seg {
+                            label: "Received",
+                            amount: account.received.max(0),
+                            color: GREEN,
+                        },
+                        Seg {
+                            label: "Outstanding",
+                            amount: outstanding,
+                            color: ORANGE,
+                        },
+                        Seg {
+                            label: "Opening balance",
+                            amount: account.opening.max(0),
+                            color: BLUE,
+                        },
                     ],
                     format!("{pct:.0}%"),
                     "collected".to_owned(),
@@ -798,8 +878,16 @@ fn draw_balance_chart(ui: &mut Ui, account: &Account, kind: AccountType) {
             }
             AccountType::Suppliers => (
                 vec![
-                    Seg { label: "Opening balance", amount: account.opening.max(0), color: BLUE },
-                    Seg { label: "Purchases", amount: account.purchases.max(0), color: PURPLE },
+                    Seg {
+                        label: "Opening balance",
+                        amount: account.opening.max(0),
+                        color: BLUE,
+                    },
+                    Seg {
+                        label: "Purchases",
+                        amount: account.purchases.max(0),
+                        color: PURPLE,
+                    },
                 ],
                 compact(account.opening.max(0) + account.purchases.max(0)),
                 "total".to_owned(),
@@ -838,7 +926,11 @@ fn draw_monthly_chart(ui: &mut Ui, state: &State) {
             ui.vertical(|ui| {
                 section_title(
                     ui,
-                    if customers { "Monthly sales" } else { "Monthly purchases" },
+                    if customers {
+                        "Monthly sales"
+                    } else {
+                        "Monthly purchases"
+                    },
                     "By document month across the financial year",
                 );
             });
@@ -854,7 +946,11 @@ fn draw_monthly_chart(ui: &mut Ui, state: &State) {
 
         if state.documents.is_empty() {
             ui.add_space(60.0);
-            empty(ui, "No documents yet", "Posted documents will be charted here.");
+            empty(
+                ui,
+                "No documents yet",
+                "Posted documents will be charted here.",
+            );
             return;
         }
 
@@ -870,7 +966,12 @@ fn draw_monthly_chart(ui: &mut Ui, state: &State) {
             }
         }
 
-        let max = totals.iter().chain(received.iter()).copied().max().unwrap_or(0);
+        let max = totals
+            .iter()
+            .chain(received.iter())
+            .copied()
+            .max()
+            .unwrap_or(0);
         let top = nice_max(max);
 
         let (rect, resp) =
@@ -938,7 +1039,12 @@ fn draw_monthly_chart(ui: &mut Ui, state: &State) {
                         Pos2::new(x0, plot.bottom() - h),
                         Pos2::new(x0 + bar_w, plot.bottom()),
                     ),
-                    CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 },
+                    CornerRadius {
+                        nw: 4,
+                        ne: 4,
+                        sw: 0,
+                        se: 0,
+                    },
                     color,
                 );
             }
@@ -955,7 +1061,11 @@ fn draw_monthly_chart(ui: &mut Ui, state: &State) {
         if let Some(i) = hovered {
             let year = if i < 9 { state.year } else { state.year + 1 };
             resp.on_hover_ui_at_pointer(|ui| {
-                ui.label(RichText::new(format!("{} {}", MONTHS[i], year)).size(14.0).strong());
+                ui.label(
+                    RichText::new(format!("{} {}", MONTHS[i], year))
+                        .size(14.0)
+                        .strong(),
+                );
                 ui.label(
                     RichText::new(format!(
                         "{}: {}",
@@ -972,12 +1082,9 @@ fn draw_monthly_chart(ui: &mut Ui, state: &State) {
                             .color(GREEN),
                     );
                     ui.label(
-                        RichText::new(format!(
-                            "Due: {}",
-                            money((totals[i] - received[i]).max(0))
-                        ))
-                        .size(13.0)
-                        .color(ORANGE),
+                        RichText::new(format!("Due: {}", money((totals[i] - received[i]).max(0))))
+                            .size(13.0)
+                            .color(ORANGE),
                     );
                 }
             });
@@ -993,7 +1100,11 @@ fn draw_documents(ui: &mut Ui, app: &AsterApp, state: &mut State, account: &Acco
             ui.vertical(|ui| {
                 section_title(
                     ui,
-                    if customers { "Sales invoices" } else { "Purchase documents" },
+                    if customers {
+                        "Sales invoices"
+                    } else {
+                        "Purchase documents"
+                    },
                     "Posted documents for the selected account",
                 );
             });
@@ -1085,7 +1196,12 @@ fn draw_documents(ui: &mut Ui, app: &AsterApp, state: &mut State, account: &Acco
             // Header
             egui::Frame::new()
                 .fill(HEADER_BG)
-                .corner_radius(CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 })
+                .corner_radius(CornerRadius {
+                    nw: 8,
+                    ne: 8,
+                    sw: 0,
+                    se: 0,
+                })
                 .inner_margin(Margin::symmetric(12, 4))
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
@@ -1119,7 +1235,12 @@ fn draw_documents(ui: &mut Ui, app: &AsterApp, state: &mut State, account: &Acco
             // Rows
             egui::Frame::new()
                 .stroke(Stroke::new(1.0_f32, BORDER))
-                .corner_radius(CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 })
+                .corner_radius(CornerRadius {
+                    nw: 0,
+                    ne: 0,
+                    sw: 8,
+                    se: 8,
+                })
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ScrollArea::vertical()
@@ -1229,7 +1350,12 @@ fn document_row(ui: &mut Ui, doc: &Document, customers: bool, w: &[f32]) {
         });
     } else {
         cell(ui, w[2], 40.0, Align::Max, |ui| {
-            ui.label(RichText::new(money(doc.total)).size(14.0).strong().color(TEXT));
+            ui.label(
+                RichText::new(money(doc.total))
+                    .size(14.0)
+                    .strong()
+                    .color(TEXT),
+            );
         });
     }
 }
@@ -1282,7 +1408,10 @@ fn statement_text(account: &Account, kind: AccountType, documents: &[Document]) 
         out.push_str(&format!("GSTIN: {}\n", account.gstin));
     }
     out.push_str(&format!("Opening balance: {}\n", money(account.opening)));
-    out.push_str(&format!("Closing balance: {}\n\n", money(account.balance(kind))));
+    out.push_str(&format!(
+        "Closing balance: {}\n\n",
+        money(account.balance(kind))
+    ));
     for doc in documents {
         if kind == AccountType::Customers {
             out.push_str(&format!(
@@ -1294,7 +1423,12 @@ fn statement_text(account: &Account, kind: AccountType, documents: &[Document]) 
                 money(doc.due())
             ));
         } else {
-            out.push_str(&format!("{}  {}  total {}\n", doc.date, doc.number, money(doc.total)));
+            out.push_str(&format!(
+                "{}  {}  total {}\n",
+                doc.date,
+                doc.number,
+                money(doc.total)
+            ));
         }
     }
     out
@@ -1559,7 +1693,14 @@ fn arc_points(center: Pos2, radius: f32, a0: f32, a1: f32) -> Vec<Pos2> {
         .collect()
 }
 
-fn donut(ui: &mut Ui, rect: Rect, resp: &Response, segs: &[Seg], center_top: &str, center_bottom: &str) {
+fn donut(
+    ui: &mut Ui,
+    rect: Rect,
+    resp: &Response,
+    segs: &[Seg],
+    center_top: &str,
+    center_bottom: &str,
+) {
     let painter = ui.painter_at(rect.expand(6.0));
     let center = rect.center();
     let thickness = 22.0_f32;
@@ -1598,11 +1739,16 @@ fn donut(ui: &mut Ui, rect: Rect, resp: &Response, segs: &[Seg], center_top: &st
                 continue;
             }
             let sweep = seg.amount as f32 / total * TAU;
-            let width = if hovered == Some(i) { thickness + 5.0 } else { thickness };
+            let width = if hovered == Some(i) {
+                thickness + 5.0
+            } else {
+                thickness
+            };
             if nonzero == 1 {
                 painter.circle_stroke(center, radius, Stroke::new(width, seg.color));
             } else {
-                let points = arc_points(center, radius, start + gap / 2.0, start + sweep - gap / 2.0);
+                let points =
+                    arc_points(center, radius, start + gap / 2.0, start + sweep - gap / 2.0);
                 painter.add(Shape::line(points, Stroke::new(width, seg.color)));
             }
             start += sweep;
@@ -1654,9 +1800,15 @@ fn apply_style(ui: &mut Ui) {
     let style = ui.style_mut();
     style.spacing.item_spacing = Vec2::new(12.0, 8.0);
     style.spacing.button_padding = Vec2::new(12.0, 6.0);
-    style.text_styles.insert(TextStyle::Body, FontId::proportional(14.0));
-    style.text_styles.insert(TextStyle::Button, FontId::proportional(14.0));
-    style.text_styles.insert(TextStyle::Small, FontId::proportional(12.0));
+    style
+        .text_styles
+        .insert(TextStyle::Body, FontId::proportional(14.0));
+    style
+        .text_styles
+        .insert(TextStyle::Button, FontId::proportional(14.0));
+    style
+        .text_styles
+        .insert(TextStyle::Small, FontId::proportional(12.0));
 }
 
 fn caps(text: &str) -> RichText {
@@ -1721,12 +1873,11 @@ fn badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) {
 
 fn chip(ui: &mut Ui, label: &str, selected: bool) -> bool {
     ui.add(
-        egui::Button::new(
-            RichText::new(label)
-                .size(13.0)
-                .strong()
-                .color(if selected { PURPLE } else { MUTED }),
-        )
+        egui::Button::new(RichText::new(label).size(13.0).strong().color(if selected {
+            PURPLE
+        } else {
+            MUTED
+        }))
         .fill(if selected { PURPLE_BG } else { CARD })
         .stroke(Stroke::new(1.0_f32, if selected { PURPLE } else { BORDER }))
         .corner_radius(CornerRadius::same(16))
@@ -1747,7 +1898,8 @@ fn cell(ui: &mut Ui, width: f32, height: f32, align: Align, add: impl FnOnce(&mu
 }
 
 fn account_item(ui: &mut Ui, account: &Account, selected: bool, kind: AccountType) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 66.0), Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 66.0), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
 
     let fill = if selected {
@@ -1823,7 +1975,14 @@ fn account_item(ui: &mut Ui, account: &Account, selected: bool, kind: AccountTyp
     let (status, color) = if account.over_limit(kind) {
         ("Over limit", RED)
     } else if balance > 0 {
-        (if kind == AccountType::Customers { "Receivable" } else { "Payable" }, ORANGE)
+        (
+            if kind == AccountType::Customers {
+                "Receivable"
+            } else {
+                "Payable"
+            },
+            ORANGE,
+        )
     } else {
         ("Settled", GREEN)
     };
