@@ -106,6 +106,7 @@ struct State {
     payment: Option<PaymentDraft>,
     history_for: Option<i64>,
     history: Vec<Receipt>,
+    invoice_detail: Option<crate::database::SalesInvoiceDetail>,
     error: String,
     message: String,
 }
@@ -184,6 +185,7 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
 
     let mut open_payment: Option<Invoice> = None;
     let mut open_history: Option<i64> = None;
+    let mut open_invoice: Option<i64> = None;
 
     ScrollArea::vertical()
         .id_salt("invoice_register_scroll")
@@ -328,6 +330,7 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                 &customers,
                 &mut open_payment,
                 &mut open_history,
+                &mut open_invoice,
             );
 
             ui.add_space(20.0);
@@ -353,6 +356,10 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         load_history(app, &mut state, invoice_id);
     }
 
+    if let Some(invoice_id) = open_invoice {
+        load_invoice_detail(app, &mut state, invoice_id);
+    }
+
     // Dialogs
     let ctx = ui.ctx().clone();
     let mut cancel = false;
@@ -372,6 +379,14 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     if close_history {
         state.history_for = None;
         state.history.clear();
+    }
+
+    let mut close_invoice_detail = false;
+    if let Some(detail) = state.invoice_detail.as_ref() {
+        invoice_detail_window(&ctx, detail, &mut close_invoice_detail);
+    }
+    if close_invoice_detail {
+        state.invoice_detail = None;
     }
 
     if save {
@@ -788,6 +803,7 @@ fn register_card(
     customers: &[String],
     open_payment: &mut Option<Invoice>,
     open_history: &mut Option<i64>,
+    open_invoice: &mut Option<i64>,
 ) {
     card(ui, |ui| {
         ui.horizontal(|ui| {
@@ -901,7 +917,7 @@ fn register_card(
 
         // Column widths
         let available = ui.available_width().max(700.0);
-        let actions_w = 190.0;
+        let actions_w = 285.0;
         let rem = (available - actions_w).max(510.0);
 
         let w = [
@@ -1064,6 +1080,18 @@ fn register_card(
                                             Layout::right_to_left(Align::Center),
                                             |ui| {
                                                 ui.spacing_mut().item_spacing.x = 8.0;
+                                                if ui
+                                                    .add(
+                                                        egui::Button::new(
+                                                            RichText::new("View invoice")
+                                                                .size(13.0),
+                                                        )
+                                                        .min_size(Vec2::new(0.0, 30.0)),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    *open_invoice = Some(invoice.id);
+                                                }
                                                 if ui
                                                     .add(
                                                         egui::Button::new(
@@ -1449,6 +1477,7 @@ fn history_window(
 fn load(app: &AsterApp, state: &mut State) {
     state.year = app.selected_year;
     state.loaded = true;
+    state.invoice_detail = None;
     state.error.clear();
 
     let Some(db) = app.db.as_ref() else {
@@ -1539,6 +1568,288 @@ fn load_history(app: &AsterApp, state: &mut State, invoice_id: i64) {
         Ok(receipts) => state.history = receipts,
         Err(error) => state.error = format!("Could not load payment history: {error}"),
     }
+}
+
+fn load_invoice_detail(app: &AsterApp, state: &mut State, invoice_id: i64) {
+    state.error.clear();
+    state.invoice_detail = None;
+
+    let result = app
+        .db
+        .as_ref()
+        .ok_or_else(|| "Database connection is unavailable.".to_owned())
+        .and_then(|db| db.sales_invoice_detail(app.selected_year, invoice_id));
+
+    match result {
+        Ok(detail) => state.invoice_detail = Some(detail),
+        Err(error) => state.error = format!("Could not load invoice details: {error}"),
+    }
+}
+
+fn invoice_detail_window(
+    ctx: &egui::Context,
+    invoice: &crate::database::SalesInvoiceDetail,
+    close: &mut bool,
+) {
+    egui::Window::new("sales_invoice_detail_window")
+        .title_bar(false)
+        .collapsible(false)
+        .resizable(true)
+        .default_size(Vec2::new(900.0, 680.0))
+        .min_size(Vec2::new(620.0, 420.0))
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .frame(
+            egui::Frame::window(&ctx.style())
+                .inner_margin(Margin::same(22))
+                .corner_radius(CornerRadius::same(14)),
+        )
+        .show(ctx, |ui| {
+            apply_style(ui);
+            ui.set_min_width(580.0);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("INVOICE DETAILS")
+                            .size(11.0)
+                            .strong()
+                            .color(PURPLE),
+                    );
+                    ui.label(
+                        RichText::new(&invoice.invoice_no)
+                            .size(23.0)
+                            .strong()
+                            .color(TEXT),
+                    );
+                    ui.label(
+                        RichText::new(format!("{}  ·  {}", invoice.invoice_date, invoice.status))
+                            .size(13.0)
+                            .color(MUTED),
+                    );
+                });
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    if ui.button("✕ Close").clicked() {
+                        *close = true;
+                    }
+                });
+            });
+
+            ui.add_space(12.0);
+            egui::Frame::new()
+                .fill(ROW_ALT)
+                .stroke(Stroke::new(1.0_f32, BORDER))
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin::same(14))
+                .show(ui, |ui| {
+                    ui.label(RichText::new("BILL TO").size(10.5).strong().color(PURPLE));
+                    ui.label(
+                        RichText::new(&invoice.customer_name)
+                            .size(16.0)
+                            .strong()
+                            .color(TEXT),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        if !invoice.customer_gstin.is_empty() {
+                            ui.label(
+                                RichText::new(format!("GSTIN: {}", invoice.customer_gstin))
+                                    .size(12.5)
+                                    .color(MUTED),
+                            );
+                        }
+                        if !invoice.customer_state_code.is_empty() {
+                            ui.label(
+                                RichText::new(format!(
+                                    "State code: {}",
+                                    invoice.customer_state_code
+                                ))
+                                .size(12.5)
+                                .color(MUTED),
+                            );
+                        }
+                    });
+                });
+
+            ui.add_space(14.0);
+            ui.label(RichText::new("ITEMS").size(11.0).strong().color(PURPLE));
+            ui.add_space(6.0);
+
+            ScrollArea::vertical().max_height(330.0).show(ui, |ui| {
+                egui::Grid::new("invoice_detail_items_grid")
+                    .striped(true)
+                    .min_col_width(38.0)
+                    .show(ui, |ui| {
+                        for heading in [
+                            "#",
+                            "Product / HSN",
+                            "Batch allocations",
+                            "Qty",
+                            "Free",
+                            "Rate",
+                            "Taxable",
+                        ] {
+                            ui.label(RichText::new(heading).size(11.5).strong().color(MUTED));
+                        }
+                        ui.end_row();
+
+                        for item in &invoice.items {
+                            ui.label(item.line_no.to_string());
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new(&item.product_name).strong().color(TEXT));
+                                ui.label(
+                                    RichText::new(format!(
+                                        "HSN {} · GST {:.2}%",
+                                        item.hsn,
+                                        item.gst_basis_points as f64 / 100.0
+                                    ))
+                                    .size(11.5)
+                                    .color(MUTED),
+                                );
+                                if !item.manufacturer.is_empty() || !item.unit.is_empty() {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} · {}",
+                                            item.manufacturer, item.unit
+                                        ))
+                                        .size(11.5)
+                                        .color(MUTED),
+                                    );
+                                }
+                                ui.label(
+                                    RichText::new(format!(
+                                        "Discount {:.2}%",
+                                        item.discount_basis_points as f64 / 100.0
+                                    ))
+                                    .size(11.5)
+                                    .color(MUTED),
+                                );
+                            });
+                            ui.vertical(|ui| {
+                                if item.paid_batches.is_empty() && item.free_batches.is_empty() {
+                                    ui.label(
+                                        RichText::new("No batch allocation recorded")
+                                            .size(11.5)
+                                            .color(MUTED),
+                                    );
+                                }
+                                for batch in &item.paid_batches {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "Paid · {} · Exp {} · {:.3} · MRP {}",
+                                            batch.batch_no,
+                                            batch.expiry_date,
+                                            batch.quantity_milli as f64 / 1000.0,
+                                            money(batch.mrp_paise)
+                                        ))
+                                        .size(11.5)
+                                        .color(TEXT),
+                                    );
+                                }
+                                for batch in &item.free_batches {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "Free · {} · Exp {} · {:.3} · MRP {}",
+                                            batch.batch_no,
+                                            batch.expiry_date,
+                                            batch.quantity_milli as f64 / 1000.0,
+                                            money(batch.mrp_paise)
+                                        ))
+                                        .size(11.5)
+                                        .color(GREEN),
+                                    );
+                                }
+                            });
+                            ui.label(format!("{:.3}", item.quantity_milli as f64 / 1000.0));
+                            ui.label(format!("{:.3}", item.free_quantity_milli as f64 / 1000.0));
+                            ui.label(money(item.rate_paise));
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new(money(item.taxable_paise))
+                                        .strong()
+                                        .color(TEXT),
+                                );
+                                ui.label(
+                                    RichText::new(format!(
+                                        "CGST {} · SGST {} · IGST {}",
+                                        money(item.cgst_paise),
+                                        money(item.sgst_paise),
+                                        money(item.igst_paise)
+                                    ))
+                                    .size(10.5)
+                                    .color(MUTED),
+                                );
+                            });
+                            ui.end_row();
+                        }
+                    });
+            });
+
+            ui.add_space(12.0);
+            ui.columns(2, |columns| {
+                columns[0].vertical(|ui| {
+                    if !invoice.payment_mode.is_empty() {
+                        ui.label(
+                            RichText::new(format!("Payment mode: {}", invoice.payment_mode))
+                                .size(12.5)
+                                .color(MUTED),
+                        );
+                    }
+                    if !invoice.notes.is_empty() {
+                        ui.label(
+                            RichText::new(format!("Notes: {}", invoice.notes))
+                                .size(12.5)
+                                .color(MUTED),
+                        );
+                    }
+                });
+                columns[1].with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    ui.vertical(|ui| {
+                        ui.label(format!(
+                            "Taxable amount     {}",
+                            money(invoice.taxable_paise)
+                        ));
+                        ui.label(format!(
+                            "CGST                 {}",
+                            money(invoice.cgst_paise)
+                        ));
+                        ui.label(format!(
+                            "SGST                 {}",
+                            money(invoice.sgst_paise)
+                        ));
+                        ui.label(format!(
+                            "IGST                  {}",
+                            money(invoice.igst_paise)
+                        ));
+                        ui.separator();
+                        ui.label(
+                            RichText::new(format!("GRAND TOTAL   {}", money(invoice.total_paise)))
+                                .size(16.0)
+                                .strong()
+                                .color(TEXT),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "Received          {}",
+                                money(invoice.received_paise)
+                            ))
+                            .color(GREEN),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "Balance due     {}",
+                                money(
+                                    invoice
+                                        .total_paise
+                                        .saturating_sub(invoice.received_paise)
+                                        .max(0)
+                                )
+                            ))
+                            .strong()
+                            .color(ORANGE),
+                        );
+                    });
+                });
+            });
+        });
 }
 
 // ───────────────────────── Charts ─────────────────────────

@@ -1,7 +1,7 @@
 use crate::app::AsterApp;
 use crate::utils::currency::format_inr;
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, Id, Label, ScrollArea, Layout, RichText, Sense, Stroke,
+    self, Align, Color32, CornerRadius, Id, Label, Layout, RichText, ScrollArea, Sense, Stroke,
 };
 use rusqlite::{Connection, Row, params};
 use std::cmp::Ordering;

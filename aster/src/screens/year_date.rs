@@ -538,7 +538,7 @@ impl AsterApp {
                     });
                 }
             });
-            
+
         if let Some(year) = delete_requested {
             ui.ctx().data_mut(|d| {
                 d.insert_temp(Id::new("aster_pending_delete_fy"), year);
@@ -551,9 +551,9 @@ impl AsterApp {
                 self.message.clear();
             }
         }
-        let pending_delete: Option<i32> = ui.ctx().data(|d| {
-            d.get_temp(Id::new("aster_pending_delete_fy"))
-        });
+        let pending_delete: Option<i32> = ui
+            .ctx()
+            .data(|d| d.get_temp(Id::new("aster_pending_delete_fy")));
 
         if let Some(year) = pending_delete {
             let mut confirm = false;
@@ -591,10 +591,9 @@ impl AsterApp {
                             cancel = true;
                         }
 
-                        let delete = egui::Button::new(
-                            RichText::new("Delete year").color(Color32::WHITE),
-                        )
-                        .fill(DANGER);
+                        let delete =
+                            egui::Button::new(RichText::new("Delete year").color(Color32::WHITE))
+                                .fill(DANGER);
 
                         if ui.add(delete).clicked() {
                             confirm = true;
@@ -621,21 +620,18 @@ impl AsterApp {
 
                         if self.selected_year == year {
                             self.selected_year = self.financial_years[0];
-                            self.date_text = format_ymd(default_date_for_fy(
-                                self.selected_year,
-                                today,
-                            ));
+                            self.date_text =
+                                format_ymd(default_date_for_fy(self.selected_year, today));
                         }
 
                         self.message = format!(
                             "Financial year deleted. Backup saved at {}",
                             backup_path.display()
                         );
-                    }    
+                    }
                     Err(error) => {
                         self.message = error;
                     }
-                    
                 }
 
                 ui.ctx().data_mut(|d| {
@@ -1075,8 +1071,7 @@ fn fy_row(
     width: f32,
 ) -> egui::Response {
     let ctx = ui.ctx().clone();
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(width, 38.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 38.0), Sense::click());
     let hover = ctx.animate_bool_with_time(response.id, response.hovered(), anim(&ctx));
     let sel = ctx.animate_bool_with_time(response.id.with("s"), selected, anim(&ctx) * 1.2);
 
@@ -1137,14 +1132,10 @@ fn fy_row(
 fn fy_delete_button(ui: &mut egui::Ui) -> egui::Response {
     ui.add_sized(
         [28.0, 30.0],
-        egui::Button::new(
-            RichText::new("×")
-                .size(20.0)
-                .color(DANGER),
-        )
-        .fill(Color32::from_rgb(252, 235, 237))
-        .stroke(Stroke::new(1.0_f32, BORDER))
-        .corner_radius(8.0),
+        egui::Button::new(RichText::new("×").size(20.0).color(DANGER))
+            .fill(Color32::from_rgb(252, 235, 237))
+            .stroke(Stroke::new(1.0_f32, BORDER))
+            .corner_radius(8.0),
     )
     .on_hover_text("Delete financial year")
 }

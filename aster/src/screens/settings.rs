@@ -1,7 +1,5 @@
 use crate::app::AsterApp;
-use eframe::egui::{
-    self, Align, Color32, CornerRadius, Layout, Margin, RichText, Sense, Stroke,
-};
+use eframe::egui::{self, Align, Color32, CornerRadius, Layout, Margin, RichText, Sense, Stroke};
 
 const INK: Color32 = Color32::from_rgb(43, 39, 52);
 const MUTED: Color32 = Color32::from_rgb(100, 94, 111);
@@ -24,7 +22,12 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     // ── page header ─────────────────────────────────────────────
     ui.label(RichText::new("SYSTEM").size(11.0).strong().color(PURPLE));
     ui.add_space(3.0);
-    ui.heading(RichText::new("System settings").size(28.0).strong().color(INK));
+    ui.heading(
+        RichText::new("System settings")
+            .size(28.0)
+            .strong()
+            .color(INK),
+    );
     ui.label(
         RichText::new("Manage application preferences, database information and maintenance.")
             .size(13.5)
@@ -46,13 +49,35 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     // ── overview tiles ──────────────────────────────────────────
     let selected = format!("{}–{}", app.selected_year, app.selected_year + 1);
     ui.columns(4, |columns| {
-        tile(&mut columns[0], "Version", env!("CARGO_PKG_VERSION"), "ASTER", PURPLE);
-        tile(&mut columns[1], "Financial year", &selected, "Currently selected", PURPLE);
-        tile(&mut columns[2], "Registered years", &years_count, "In this installation", PURPLE);
+        tile(
+            &mut columns[0],
+            "Version",
+            env!("CARGO_PKG_VERSION"),
+            "ASTER",
+            PURPLE,
+        );
+        tile(
+            &mut columns[1],
+            "Financial year",
+            &selected,
+            "Currently selected",
+            PURPLE,
+        );
+        tile(
+            &mut columns[2],
+            "Registered years",
+            &years_count,
+            "In this installation",
+            PURPLE,
+        );
         tile(
             &mut columns[3],
             "Database",
-            if db_connected { "Connected" } else { "Unavailable" },
+            if db_connected {
+                "Connected"
+            } else {
+                "Unavailable"
+            },
             "SQLite storage",
             if db_connected { GREEN } else { RED },
         );
@@ -390,7 +415,9 @@ fn draw_message(ui: &mut egui::Ui, app: &mut AsterApp) {
                 });
             });
             ui.add_space(2.0);
-            ui.add(egui::Label::new(RichText::new(&message).size(12.5).color(INK)).selectable(true));
+            ui.add(
+                egui::Label::new(RichText::new(&message).size(12.5).color(INK)).selectable(true),
+            );
         });
 
     ui.add_space(14.0);
@@ -421,7 +448,12 @@ fn tile(ui: &mut egui::Ui, label: &str, value: &str, note: &str, accent: Color32
         let (bar, _) = ui.allocate_exact_size(egui::vec2(26.0, 3.0), Sense::hover());
         ui.painter().rect_filled(bar, CornerRadius::same(2), accent);
         ui.add_space(6.0);
-        ui.label(RichText::new(label.to_uppercase()).size(10.5).strong().color(MUTED));
+        ui.label(
+            RichText::new(label.to_uppercase())
+                .size(10.5)
+                .strong()
+                .color(MUTED),
+        );
         ui.add_space(1.0);
         ui.label(RichText::new(value).size(19.0).strong().color(INK));
         ui.label(RichText::new(note).size(11.0).color(MUTED));
@@ -509,10 +541,19 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     }
 
     let radius = rect.height() / 2.0;
-    let track = if *on { PURPLE } else { Color32::from_rgb(204, 200, 213) };
-    ui.painter().rect_filled(rect, CornerRadius::same(radius as u8), track);
+    let track = if *on {
+        PURPLE
+    } else {
+        Color32::from_rgb(204, 200, 213)
+    };
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(radius as u8), track);
 
-    let knob_x = if *on { rect.right() - radius } else { rect.left() + radius };
+    let knob_x = if *on {
+        rect.right() - radius
+    } else {
+        rect.left() + radius
+    };
     ui.painter()
         .circle_filled(egui::pos2(knob_x, rect.center().y), radius - 3.0, WHITE);
 
@@ -520,17 +561,27 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
 }
 
 fn primary_button(text: &str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.to_owned()).size(12.5).strong().color(WHITE))
-        .fill(PURPLE)
-        .stroke(Stroke::new(1.0_f32, PURPLE))
-        .corner_radius(CornerRadius::same(8))
-        .min_size(egui::vec2(0.0, 32.0))
+    egui::Button::new(
+        RichText::new(text.to_owned())
+            .size(12.5)
+            .strong()
+            .color(WHITE),
+    )
+    .fill(PURPLE)
+    .stroke(Stroke::new(1.0_f32, PURPLE))
+    .corner_radius(CornerRadius::same(8))
+    .min_size(egui::vec2(0.0, 32.0))
 }
 
 fn warning_button(text: &str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.to_owned()).size(12.5).strong().color(AMBER))
-        .fill(AMBER_TINT)
-        .stroke(Stroke::new(1.0_f32, AMBER_BORDER))
-        .corner_radius(CornerRadius::same(8))
-        .min_size(egui::vec2(0.0, 32.0))
+    egui::Button::new(
+        RichText::new(text.to_owned())
+            .size(12.5)
+            .strong()
+            .color(AMBER),
+    )
+    .fill(AMBER_TINT)
+    .stroke(Stroke::new(1.0_f32, AMBER_BORDER))
+    .corner_radius(CornerRadius::same(8))
+    .min_size(egui::vec2(0.0, 32.0))
 }

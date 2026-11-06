@@ -31,6 +31,7 @@ struct InvoiceLine {
     quantity: String,
     rate: String,
     discount_percent: String,
+    free_quantity: String,
 }
 
 impl InvoiceLine {
@@ -48,6 +49,10 @@ impl InvoiceLine {
             .parse::<f64>()
             .unwrap_or(0.0)
             .clamp(0.0, 100.0)
+    }
+
+    fn free_quantity(&self) -> f64 {
+        self.free_quantity.trim().parse::<f64>().unwrap_or(0.0)
     }
 
     fn gross(&self) -> f64 {
@@ -75,6 +80,8 @@ impl InvoiceLine {
             && self.quantity() > 0.0
             && self.rate() >= 0.0
             && self.discount_percent() <= 100.0
+            && self.free_quantity().is_finite()
+            && self.free_quantity() >= 0.0
     }
 }
 
@@ -354,6 +361,7 @@ fn add_product(state: &mut SalesState, product: &ProductRecord) {
         quantity: "1".to_owned(),
         rate: String::new(),
         discount_percent: "0".to_owned(),
+        free_quantity: "0".to_owned(),
     });
 
     state.message = format!("{} added to the invoice.", product.name);
@@ -627,6 +635,7 @@ fn show_invoice_lines(ui: &mut egui::Ui, state: &mut SalesState) {
     let columns = [
         ("PRODUCT", 0.28),
         ("QTY", 0.09),
+        ("FREE", 0.08),
         ("RATE ₹", 0.13),
         ("DISC %", 0.10),
         ("GST", 0.08),
@@ -723,6 +732,19 @@ fn show_invoice_lines(ui: &mut egui::Ui, state: &mut SalesState) {
                             ui.add(
                                 egui::TextEdit::singleline(&mut line.quantity)
                                     .id(Id::new(("sales_qty", line.product_id)))
+                                    .desired_width(f32::INFINITY),
+                            );
+                        },
+                    );
+
+                    ui.allocate_ui_with_layout(
+                        Vec2::new((width * 0.08 - 8.0).max(35.0), 34.0),
+                        egui::Layout::top_down(Align::Center),
+                        |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut line.free_quantity)
+                                    .id(Id::new(("sales_free_qty", line.product_id)))
+                                    .hint_text("0")
                                     .desired_width(f32::INFINITY),
                             );
                         },
@@ -1229,9 +1251,30 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
                             };
                             let lines = state.lines.iter().map(|line| {
                                 let quantity = line.quantity();
+                                let free_quantity = line.free_quantity();
                                 let rate = parse_money(&line.rate)?;
-                                if !quantity.is_finite() || quantity <= 0.0 || quantity > (i64::MAX as f64 / 1000.0) { return Err("Enter a valid positive quantity.".to_owned()); }
-                                Ok(SalesLineDraft { product_id: line.product_id, quantity_milli: (quantity * 1000.0).round() as i64, rate_paise: rate, discount_basis_points: (line.discount_percent() * 100.0).round() as i64 })
+
+                                if !quantity.is_finite()
+                                    || quantity <= 0.0
+                                    || quantity > (i64::MAX as f64 / 1000.0)
+                                {
+                                    return Err("Enter a valid positive quantity.".to_owned());
+                                }
+
+                                if !free_quantity.is_finite()
+                                    || free_quantity < 0.0
+                                    || free_quantity > (i64::MAX as f64 / 1000.0)
+                                {
+                                    return Err("Enter a valid free quantity.".to_owned());
+                                }
+
+                                Ok(SalesLineDraft {
+                                    product_id: line.product_id,
+                                    quantity_milli: (quantity * 1000.0).round() as i64,
+                                    free_quantity_milli: (free_quantity * 1000.0).round() as i64,
+                                    rate_paise: rate,
+                                    discount_basis_points: (line.discount_percent() * 100.0).round() as i64,
+                                })
                             }).collect::<Result<Vec<_>, String>>();
                             let overall_discount = if state.overall_discount.trim().is_empty() { Ok(0.0) } else { state.overall_discount.trim().parse::<f64>().map_err(|_| "Enter a valid overall discount.".to_owned()) };
                             let received = parse_money(&state.amount_received);

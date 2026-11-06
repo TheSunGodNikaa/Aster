@@ -145,3 +145,34 @@
 - [ ] Complete backup/restore, packaging, migration, and release testing.
 
 **Update note:** This section supersedes the earlier Phase 5 statement that Accounts and Reports were not implemented. Earlier historical notes are retained for traceability; the struck-through wording is no longer current.
+
+---
+
+## Latest Update — 2026-11-02 (Financial Year Management)
+
+### Financial-year selection
+
+- [x] Added a delete button to financial-year selection rows.
+- [x] Added a confirmation dialog for deletion.
+- [x] Protected the current financial year from deletion.
+- [x] Prevented deletion when only one financial year remains.
+- [x] Added database-level validation for current-year protection.
+- [x] Updated the selection screen after successful deletion.
+- [x] Updated the working date when the selected financial year is removed.
+
+### Database safety and recovery
+
+- [x] Generate a ZIP safety backup before deleting a financial year.
+- [x] Include the global database and registered financial-year databases in the backup.
+- [x] Move the original financial-year directory into `data/deleted` rather than permanently deleting it.
+- [x] Remove the financial-year registration from the global database.
+- [x] Attempt to restore the original directory if registration deletion fails.
+- [ ] Verify backup integrity and restoration using a test database.
+- [ ] Test failure and recovery scenarios.
+
+### Files involved
+
+- `src/screens/year_date.rs` — financial-year list, delete button, confirmation dialog and UI state updates.
+- `src/database.rs` — financial-year deletion, validation, backup and directory archival.
+
+**Verification note:** Implementation details are documented based on the current development work. Full regression and backup-recovery testing remain outstanding.

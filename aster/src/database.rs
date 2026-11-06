@@ -16,7 +16,7 @@ use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 use crate::date::local_date;
 
 const CURRENT_GLOBAL_SCHEMA: i64 = 2;
-const CURRENT_YEAR_SCHEMA: i64 = 6;
+const CURRENT_YEAR_SCHEMA: i64 = 8;
 const MIN_FINANCIAL_YEAR: i32 = 1900;
 const MAX_FINANCIAL_YEAR: i32 = 9998;
 
@@ -159,6 +159,7 @@ pub(crate) struct PurchaseDraft {
 pub(crate) struct SalesLineDraft {
     pub product_id: i64,
     pub quantity_milli: i64,
+    pub free_quantity_milli: i64,
     pub rate_paise: i64,
     pub discount_basis_points: i64,
 }
@@ -172,6 +173,53 @@ pub(crate) struct SalesInvoiceDraft {
     pub payment_mode: String,
     pub notes: String,
     pub lines: Vec<SalesLineDraft>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SalesInvoiceDetail {
+    pub invoice_no: String,
+    pub customer_name: String,
+    pub customer_gstin: String,
+    pub customer_state_code: String,
+    pub invoice_date: String,
+    pub status: String,
+    pub taxable_paise: i64,
+    pub cgst_paise: i64,
+    pub sgst_paise: i64,
+    pub igst_paise: i64,
+    pub total_paise: i64,
+    pub received_paise: i64,
+    pub payment_mode: String,
+    pub notes: String,
+    pub items: Vec<SalesInvoiceItemDetail>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SalesInvoiceItemDetail {
+    pub line_no: i64,
+    pub product_name: String,
+    pub hsn: String,
+    pub manufacturer: String,
+    pub unit: String,
+    pub gst_basis_points: i64,
+    pub quantity_milli: i64,
+    pub free_quantity_milli: i64,
+    pub rate_paise: i64,
+    pub discount_basis_points: i64,
+    pub taxable_paise: i64,
+    pub cgst_paise: i64,
+    pub sgst_paise: i64,
+    pub igst_paise: i64,
+    pub paid_batches: Vec<SalesInvoiceBatchDetail>,
+    pub free_batches: Vec<SalesInvoiceBatchDetail>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SalesInvoiceBatchDetail {
+    pub quantity_milli: i64,
+    pub batch_no: String,
+    pub expiry_date: String,
+    pub mrp_paise: i64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -706,6 +754,75 @@ impl Database {
                 .map_err(|error| format!("Apply payment receipt migration: {error}"))?;
         }
 
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| format!("Re-read financial-year schema version: {error}"))?;
+
+        if version < 7 {
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+
+                    ALTER TABLE sales_invoice_items
+                        ADD COLUMN manufacturer_snap TEXT NOT NULL DEFAULT '';
+
+                    ALTER TABLE sales_invoice_items
+                        ADD COLUMN unit_snap TEXT NOT NULL DEFAULT '';
+
+                    ALTER TABLE sales_invoice_batches
+                        ADD COLUMN mrp_paise_snap INTEGER NOT NULL DEFAULT 0
+                        CHECK (mrp_paise_snap >= 0);
+
+                    INSERT OR IGNORE INTO schema_migrations(version)
+                        VALUES (7);
+
+                    PRAGMA user_version = 7;
+                    COMMIT;",
+                )
+                .map_err(|error| format!("Apply invoice snapshot migration: {error}"))?;
+        }
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| format!("Re-read invoice schema version: {error}"))?;
+
+        if version < 8 {
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+
+                    ALTER TABLE sales_invoice_items
+                        ADD COLUMN free_quantity_milli INTEGER NOT NULL DEFAULT 0
+                        CHECK (free_quantity_milli >= 0);
+
+                    CREATE TABLE sales_invoice_free_batches (
+                        id INTEGER PRIMARY KEY,
+                        invoice_item_id INTEGER NOT NULL
+                            REFERENCES sales_invoice_items(id)
+                            ON UPDATE CASCADE ON DELETE RESTRICT,
+                        batch_id INTEGER NOT NULL
+                            REFERENCES batches(id)
+                            ON UPDATE CASCADE ON DELETE RESTRICT,
+                        quantity_milli INTEGER NOT NULL
+                            CHECK (quantity_milli > 0),
+                        batch_no_snap TEXT NOT NULL,
+                        expiry_date_snap TEXT NOT NULL,
+                        mrp_paise_snap INTEGER NOT NULL DEFAULT 0
+                            CHECK (mrp_paise_snap >= 0)
+                    );
+
+                    CREATE INDEX idx_sales_invoice_free_batches_item
+                        ON sales_invoice_free_batches(invoice_item_id);
+
+                    INSERT OR IGNORE INTO schema_migrations(version)
+                        VALUES (8);
+
+                    PRAGMA user_version = 8;
+                    COMMIT;",
+                )
+                .map_err(|error| format!("Apply free quantity migration: {error}"))?;
+        }
+
         let stored_year: Option<i32> = connection
             .query_row(
                 "SELECT financial_year_start FROM aster_meta WHERE id = 1",
@@ -830,7 +947,7 @@ impl Database {
         &self,
         start_year: i32,
         current_fy: i32,
-    ) -> Result<PathBuf, String>{
+    ) -> Result<PathBuf, String> {
         validate_financial_year(start_year)?;
         if start_year == current_fy {
             return Err("The current financial year cannot be deleted.".into());
@@ -870,10 +987,8 @@ impl Database {
         fs::create_dir_all(&archive_parent)
             .map_err(|e| format!("Create deleted-year archive folder: {e}"))?;
 
-        let archived_directory = archive_parent.join(format!(
-            "{start_year}-{}-{stamp}",
-            start_year + 1
-        ));
+        let archived_directory =
+            archive_parent.join(format!("{start_year}-{}-{stamp}", start_year + 1));
 
         // Move the original folder instead of permanently deleting it.
         fs::rename(&year_directory, &archived_directory)
@@ -915,7 +1030,7 @@ impl Database {
         }
 
         Ok(backup_path)
-}
+    }
 
     fn carry_forward_year(&self, previous_year: i32, new_year: i32) -> Result<(), String> {
         drop(self.year_connection(previous_year)?);
@@ -2302,6 +2417,146 @@ impl Database {
         Ok(payment_id)
     }
 
+    pub(crate) fn sales_invoice_detail(
+        &self,
+        year: i32,
+        invoice_id: i64,
+    ) -> Result<SalesInvoiceDetail, String> {
+        if invoice_id <= 0 {
+            return Err("Select a valid invoice.".into());
+        }
+
+        let connection = self.year_connection(year)?;
+        let mut detail = connection
+            .query_row(
+                "SELECT
+                    id, invoice_no, customer_name_snap, customer_gstin_snap,
+                    customer_state_code_snap, invoice_date, status,
+                    taxable_paise, cgst_paise, sgst_paise, igst_paise,
+                    total_paise, received_paise, payment_mode, notes
+                 FROM sales_invoices
+                 WHERE id = ?1",
+                [invoice_id],
+                |row| {
+                    Ok(SalesInvoiceDetail {
+                        invoice_no: row.get(1)?,
+                        customer_name: row.get(2)?,
+                        customer_gstin: row.get(3)?,
+                        customer_state_code: row.get(4)?,
+                        invoice_date: row.get(5)?,
+                        status: row.get(6)?,
+                        taxable_paise: row.get(7)?,
+                        cgst_paise: row.get(8)?,
+                        sgst_paise: row.get(9)?,
+                        igst_paise: row.get(10)?,
+                        total_paise: row.get(11)?,
+                        received_paise: row.get(12)?,
+                        payment_mode: row.get(13)?,
+                        notes: row.get(14)?,
+                        ..Default::default()
+                    })
+                },
+            )
+            .optional()
+            .map_err(|error| format!("Read invoice header: {error}"))?
+            .ok_or_else(|| {
+                "The selected invoice was not found in this financial year.".to_owned()
+            })?;
+
+        let mut item_statement = connection
+            .prepare(
+                "SELECT
+                    id, line_no, product_name_snap, hsn_snap,
+                    manufacturer_snap, unit_snap, gst_basis_points,
+                    quantity_milli, free_quantity_milli, rate_paise,
+                    discount_basis_points, taxable_paise, cgst_paise,
+                    sgst_paise, igst_paise
+                 FROM sales_invoice_items
+                 WHERE invoice_id = ?1
+                 ORDER BY line_no, id",
+            )
+            .map_err(|error| format!("Prepare invoice items: {error}"))?;
+
+        let item_rows = item_statement
+            .query_map([invoice_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    SalesInvoiceItemDetail {
+                        line_no: row.get(1)?,
+                        product_name: row.get(2)?,
+                        hsn: row.get(3)?,
+                        manufacturer: row.get(4)?,
+                        unit: row.get(5)?,
+                        gst_basis_points: row.get(6)?,
+                        quantity_milli: row.get(7)?,
+                        free_quantity_milli: row.get(8)?,
+                        rate_paise: row.get(9)?,
+                        discount_basis_points: row.get(10)?,
+                        taxable_paise: row.get(11)?,
+                        cgst_paise: row.get(12)?,
+                        sgst_paise: row.get(13)?,
+                        igst_paise: row.get(14)?,
+                        ..Default::default()
+                    },
+                ))
+            })
+            .map_err(|error| format!("Read invoice items: {error}"))?;
+
+        let item_rows = item_rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("Collect invoice items: {error}"))?;
+        drop(item_statement);
+
+        for (item_id, mut item) in item_rows {
+            let mut paid_statement = connection
+                .prepare(
+                    "SELECT quantity_milli, batch_no_snap, expiry_date_snap, mrp_paise_snap
+                     FROM sales_invoice_batches
+                     WHERE invoice_item_id = ?1
+                     ORDER BY id",
+                )
+                .map_err(|error| format!("Prepare paid batch allocations: {error}"))?;
+            item.paid_batches = paid_statement
+                .query_map([item_id], |row| {
+                    Ok(SalesInvoiceBatchDetail {
+                        quantity_milli: row.get(0)?,
+                        batch_no: row.get(1)?,
+                        expiry_date: row.get(2)?,
+                        mrp_paise: row.get(3)?,
+                    })
+                })
+                .map_err(|error| format!("Read paid batch allocations: {error}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("Collect paid batch allocations: {error}"))?;
+            drop(paid_statement);
+
+            let mut free_statement = connection
+                .prepare(
+                    "SELECT quantity_milli, batch_no_snap, expiry_date_snap, mrp_paise_snap
+                     FROM sales_invoice_free_batches
+                     WHERE invoice_item_id = ?1
+                     ORDER BY id",
+                )
+                .map_err(|error| format!("Prepare free batch allocations: {error}"))?;
+            item.free_batches = free_statement
+                .query_map([item_id], |row| {
+                    Ok(SalesInvoiceBatchDetail {
+                        quantity_milli: row.get(0)?,
+                        batch_no: row.get(1)?,
+                        expiry_date: row.get(2)?,
+                        mrp_paise: row.get(3)?,
+                    })
+                })
+                .map_err(|error| format!("Read free batch allocations: {error}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("Collect free batch allocations: {error}"))?;
+
+            detail.items.push(item);
+        }
+
+        Ok(detail)
+    }
+
     pub(crate) fn post_sales_invoice(
         &self,
         year: i32,
@@ -2364,8 +2619,18 @@ impl Database {
             settings.0.trim()
         };
         let invoice_no = format!("{prefix}-{year}-{:06}", next);
-        let mut computed: Vec<(SalesLineDraft, String, String, i64, i64, i64, i64, i64)> =
-            Vec::new();
+        let mut computed: Vec<(
+            SalesLineDraft,
+            String,
+            String,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+        )> = Vec::new();
         let mut taxable_total: i64 = 0;
         let mut cgst_total: i64 = 0;
         let mut sgst_total: i64 = 0;
@@ -2373,6 +2638,7 @@ impl Database {
         for (i, line) in draft.lines.iter().enumerate() {
             if line.product_id <= 0
                 || line.quantity_milli <= 0
+                || line.free_quantity_milli < 0
                 || line.rate_paise < 0
                 || !(0..=10000).contains(&line.discount_basis_points)
             {
@@ -2381,10 +2647,32 @@ impl Database {
                     i + 1
                 ));
             }
-            let product: (String,String,i64,i64) = tx.query_row(
-                "SELECT name,hsn_code,CAST(ROUND(gst_percent*100) AS INTEGER),active FROM products WHERE id=?1", [line.product_id],
-                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
-            ).map_err(|_|format!("Line {}: product no longer exists.",i+1))?;
+            let product: (String, String, i64, i64, String, String) = tx
+                .query_row(
+                    "SELECT
+                        p.name,
+                        p.hsn_code,
+                        CAST(ROUND(p.gst_percent * 100) AS INTEGER),
+                        p.active,
+                        COALESCE(m.name, ''),
+                        COALESCE(u.short_name, '')
+                    FROM products p
+                    LEFT JOIN manufacturers m ON m.id = p.manufacturer_id
+                    LEFT JOIN units u ON u.id = p.unit_id
+                    WHERE p.id = ?1",
+                    [line.product_id],
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                        ))
+                    },
+                )
+                .map_err(|_| format!("Line {}: product no longer exists.", i + 1))?;
             if product.3 == 0 {
                 return Err(format!("Line {}: '{}' is inactive.", i + 1, product.0));
             }
@@ -2411,6 +2699,8 @@ impl Database {
                 0,
                 0,
                 0,
+                product.4,
+                product.5,
             ));
         }
         let global_discount =
@@ -2472,11 +2762,56 @@ impl Database {
         let invoice_id = tx.last_insert_rowid();
         for (index, item) in computed.iter().enumerate() {
             let line = &item.0;
-            tx.execute("INSERT INTO sales_invoice_items(invoice_id,line_no,product_id,product_name_snap,hsn_snap,gst_basis_points,quantity_milli,rate_paise,discount_basis_points,taxable_paise,cgst_paise,sgst_paise,igst_paise) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![invoice_id,index as i64+1,line.product_id,item.1,item.2,item.3,line.quantity_milli,line.rate_paise,line.discount_basis_points,item.4,item.5,item.6,item.7]).map_err(|e|format!("Save invoice line {}: {e}",index+1))?;
+            tx.execute(
+                "INSERT INTO sales_invoice_items (
+                        invoice_id, line_no, product_id,
+                        product_name_snap, hsn_snap, gst_basis_points,
+                        quantity_milli, free_quantity_milli,
+                        rate_paise, discount_basis_points,
+                        taxable_paise, cgst_paise, sgst_paise, igst_paise,
+                        manufacturer_snap, unit_snap
+                    ) VALUES (
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                        ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+                    )",
+                params![
+                    invoice_id,
+                    index as i64 + 1,
+                    line.product_id,
+                    item.1,
+                    item.2,
+                    item.3,
+                    line.quantity_milli,
+                    line.free_quantity_milli,
+                    line.rate_paise,
+                    line.discount_basis_points,
+                    item.4,
+                    item.5,
+                    item.6,
+                    item.7,
+                    item.8,
+                    item.9,
+                ],
+            )
+            .map_err(|e| format!("Save invoice line {}: {e}", index + 1))?;
             let item_id = tx.last_insert_rowid();
             let mut needed = line.quantity_milli;
-            let mut stmt=tx.prepare("SELECT id,batch_no,expiry_date,qty_on_hand_milli FROM batches WHERE product_id=?1 AND active=1 AND expiry_date>=?2 AND qty_on_hand_milli>0 ORDER BY expiry_date, id")
-                .map_err(|e|format!("Prepare stock allocation: {e}"))?;
+            let mut stmt = tx
+                .prepare(
+                    "SELECT
+                        id,
+                        batch_no,
+                        expiry_date,
+                        qty_on_hand_milli,
+                        mrp_paise
+                    FROM batches
+                    WHERE product_id = ?1
+                    AND active = 1
+                    AND expiry_date >= ?2
+                    AND qty_on_hand_milli > 0
+                    ORDER BY expiry_date, id",
+                )
+                .map_err(|e| format!("Prepare stock allocation: {e}"))?;
             let batches = stmt
                 .query_map(params![line.product_id, draft.invoice_date], |r| {
                     Ok((
@@ -2484,6 +2819,7 @@ impl Database {
                         r.get::<_, String>(1)?,
                         r.get::<_, String>(2)?,
                         r.get::<_, i64>(3)?,
+                        r.get::<_, i64>(4)?,
                     ))
                 })
                 .map_err(|e| format!("Read available stock: {e}"))?
@@ -2501,15 +2837,121 @@ impl Database {
                     available as f64 / 1000.0
                 ));
             }
-            for (batch_id, batch_no, expiry, qty) in batches {
+            for (batch_id, batch_no, expiry, qty, mrp_paise) in batches {
                 if needed <= 0 {
                     break;
                 }
                 let take = needed.min(qty);
                 tx.execute("UPDATE batches SET qty_on_hand_milli=qty_on_hand_milli-?1 WHERE id=?2 AND qty_on_hand_milli>=?1",params![take,batch_id]).map_err(|e|format!("Deduct batch stock: {e}"))?;
-                tx.execute("INSERT INTO sales_invoice_batches(invoice_item_id,batch_id,quantity_milli,batch_no_snap,expiry_date_snap) VALUES(?1,?2,?3,?4,?5)",params![item_id,batch_id,take,batch_no,expiry]).map_err(|e|format!("Save invoice batch allocation: {e}"))?;
+                tx.execute(
+                    "INSERT INTO sales_invoice_batches (
+                        invoice_item_id,
+                        batch_id,
+                        quantity_milli,
+                        batch_no_snap,
+                        expiry_date_snap,
+                        mrp_paise_snap
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![item_id, batch_id, take, batch_no, expiry, mrp_paise],
+                )
+                .map_err(|e| format!("Save invoice batch allocation: {e}"))?;
                 tx.execute("INSERT INTO stock_movements(batch_id,movement_type,reference_type,reference_id,quantity_change_milli,free_quantity_change_milli) VALUES(?1,'sale','sales_invoice',?2,?3,0)",params![batch_id,invoice_id,-take]).map_err(|e|format!("Record stock movement: {e}"))?;
                 needed -= take;
+            }
+            // Allocate supplier-provided free stock separately.
+            let mut free_needed = line.free_quantity_milli;
+
+            if free_needed > 0 {
+                let mut stmt = tx
+                    .prepare(
+                        "SELECT
+                            id,
+                            batch_no,
+                            expiry_date,
+                            free_qty_on_hand_milli,
+                            mrp_paise
+                        FROM batches
+                        WHERE product_id = ?1
+                        AND active = 1
+                        AND expiry_date >= ?2
+                        AND free_qty_on_hand_milli > 0
+                        ORDER BY expiry_date, id",
+                    )
+                    .map_err(|e| format!("Prepare free-stock allocation: {e}"))?;
+
+                let free_batches = stmt
+                    .query_map(params![line.product_id, draft.invoice_date], |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, i64>(3)?,
+                            r.get::<_, i64>(4)?,
+                        ))
+                    })
+                    .map_err(|e| format!("Read available free stock: {e}"))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| format!("Read free-stock batches: {e}"))?;
+
+                drop(stmt);
+
+                let free_available: i64 = free_batches.iter().try_fold(0i64, |a, b| {
+                    a.checked_add(b.3).ok_or("Free-stock quantity overflow.")
+                })?;
+
+                if free_available < free_needed {
+                    return Err(format!(
+                        "Insufficient supplier-provided free stock for '{}': requested {:.3}, available {:.3}.",
+                        item.1,
+                        free_needed as f64 / 1000.0,
+                        free_available as f64 / 1000.0
+                    ));
+                }
+
+                for (batch_id, batch_no, expiry, qty, mrp_paise) in free_batches {
+                    if free_needed <= 0 {
+                        break;
+                    }
+
+                    let take = free_needed.min(qty);
+
+                    tx.execute(
+                        "UPDATE batches
+                        SET free_qty_on_hand_milli = free_qty_on_hand_milli - ?1
+                        WHERE id = ?2
+                        AND free_qty_on_hand_milli >= ?1",
+                        params![take, batch_id],
+                    )
+                    .map_err(|e| format!("Deduct free batch stock: {e}"))?;
+
+                    tx.execute(
+                        "INSERT INTO sales_invoice_free_batches (
+                            invoice_item_id,
+                            batch_id,
+                            quantity_milli,
+                            batch_no_snap,
+                            expiry_date_snap,
+                            mrp_paise_snap
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![item_id, batch_id, take, batch_no, expiry, mrp_paise],
+                    )
+                    .map_err(|e| format!("Save free batch allocation: {e}"))?;
+
+                    tx.execute(
+                        "INSERT INTO stock_movements (
+                            batch_id,
+                            movement_type,
+                            reference_type,
+                            reference_id,
+                            quantity_change_milli,
+                            free_quantity_change_milli
+                        ) VALUES (?1, 'sale', 'sales_invoice', ?2, 0, ?3)",
+                        params![batch_id, invoice_id, -take],
+                    )
+                    .map_err(|e| format!("Record free-stock movement: {e}"))?;
+
+                    free_needed -= take;
+                }
             }
         }
         if draft.amount_received_paise > 0 {
