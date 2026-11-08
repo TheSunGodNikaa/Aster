@@ -1,4 +1,7 @@
-use crate::{app::AsterApp, database::CustomerRecord};
+use crate::{
+    app::AsterApp,
+    database::{CustomerRecord, GST_STATES, is_valid_state_code, state_name, validate_gstin_state},
+};
 use eframe::egui::{
     self, Align, Align2, Color32, CursorIcon, FontId, Id, Layout, Margin, Rect, RichText,
     ScrollArea, Sense, Stroke, Vec2, pos2, vec2,
@@ -120,6 +123,15 @@ impl Form {
         if self.name.trim().is_empty() {
             return Err("Customer name is required.".into());
         }
+        if !is_valid_state_code(&self.state_code) {
+            return Err("Select a valid customer state.".into());
+        }
+        if state_name(&self.state_code) != Some(self.state.trim()) {
+            return Err(
+                "Customer state name and state code do not match. Select the state again.".into(),
+            );
+        }
+        validate_gstin_state(&self.gstin, &self.state_code, "Customer", false)?;
         let money = |raw: &str, label: &str, nonnegative: bool| -> Result<i64, String> {
             let n = if raw.trim().is_empty() {
                 0.0
@@ -775,10 +787,10 @@ fn editor(ui: &mut egui::Ui, s: &mut State, app: &AsterApp) {
                 );
                 ui.columns(2, |c| {
                     field(&mut c[0], "City / town", &mut s.form.city, "e.g. Cuddalore");
-                    field(&mut c[1], "State", &mut s.form.state, "e.g. Tamil Nadu");
+                    state_picker(&mut c[1], &mut s.form);
                 });
                 ui.columns(2, |c| {
-                    field(&mut c[0], "State code", &mut s.form.state_code, "e.g. 33");
+                    state_code_display(&mut c[0], &s.form.state_code);
                     field(&mut c[1], "PIN code", &mut s.form.pincode, "6 digits");
                 });
 
@@ -976,6 +988,53 @@ struct Opts<'a> {
     invalid: bool,
     right: bool,
     note: Option<&'a str>,
+}
+
+fn state_picker(ui: &mut egui::Ui, form: &mut Form) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.label(RichText::new("State").size(11.5).strong().color(MUTED));
+        ui.label(RichText::new("*").size(11.5).color(RED));
+    });
+    let selected = state_name(&form.state_code).unwrap_or("Select state");
+    egui::ComboBox::from_id_salt("aster_customer_state")
+        .width(ui.available_width())
+        .selected_text(selected)
+        .show_ui(ui, |ui| {
+            for (code, name) in GST_STATES {
+                if ui
+                    .selectable_label(form.state_code == *code, format!("{code}  ·  {name}"))
+                    .clicked()
+                {
+                    form.state_code = (*code).to_owned();
+                    form.state = (*name).to_owned();
+                }
+            }
+        });
+}
+
+fn state_code_display(ui: &mut egui::Ui, code: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.label(
+            RichText::new("GST state code")
+                .size(11.5)
+                .strong()
+                .color(MUTED),
+        );
+    });
+    let value = if is_valid_state_code(code) {
+        code
+    } else {
+        "--"
+    };
+    let mut display = value.to_owned();
+    ui.add_enabled(
+        false,
+        egui::TextEdit::singleline(&mut display)
+            .desired_width(f32::INFINITY)
+            .margin(Margin::symmetric(10, 7)),
+    );
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {

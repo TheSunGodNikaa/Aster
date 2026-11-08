@@ -1,6 +1,9 @@
 use crate::{
     app::AsterApp,
-    database::{ManufacturerOption, ProductRecord, SupplierProductLink, SupplierRecord},
+    database::{
+        GST_STATES, ManufacturerOption, ProductRecord, SupplierProductLink, SupplierRecord,
+        is_valid_state_code, state_name, validate_gstin_state,
+    },
 };
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
@@ -200,32 +203,18 @@ impl Form {
         }
 
         let gstin = self.gstin.trim().to_uppercase();
-        if !gstin.is_empty()
-            && (gstin.chars().count() != 15 || !gstin.chars().all(|c| c.is_ascii_alphanumeric()))
-        {
-            return Err(ferr(
-                FieldId::Gstin,
-                "GSTIN must be exactly 15 letters or digits.",
-            ));
+        let state_code = self.state_code.trim().to_owned();
+        if !is_valid_state_code(&state_code) {
+            return Err(ferr(FieldId::StateCode, "Select a valid supplier state."));
         }
-
-        // Derive the GST state code from the GSTIN when it was left blank.
-        let mut state_code = self.state_code.trim().to_owned();
-        if state_code.is_empty() {
-            if let Some(prefix) = gstin.get(..2) {
-                if prefix.chars().all(|c| c.is_ascii_digit()) {
-                    state_code = prefix.to_owned();
-                }
-            }
-        }
-        if !state_code.is_empty()
-            && !(state_code.len() == 2 && state_code.chars().all(|c| c.is_ascii_digit()))
-        {
+        if state_name(&state_code) != Some(self.state.trim()) {
             return Err(ferr(
                 FieldId::StateCode,
-                "GST state code must be two digits.",
+                "Supplier state name and state code do not match. Select the state again.",
             ));
         }
+        validate_gstin_state(&gstin, &state_code, "Supplier", false)
+            .map_err(|message| ferr(FieldId::Gstin, message))?;
 
         let pincode = self.pincode.trim();
         if !pincode.is_empty()
@@ -1157,16 +1146,10 @@ fn editor_body(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, now: f64) {
         );
         ui.columns(2, |c| {
             field(&mut c[0], "City / town", &mut s.form.city, "e.g. Chennai");
-            field(&mut c[1], "State", &mut s.form.state, "e.g. Tamil Nadu");
+            state_picker(&mut c[1], &mut s.form);
         });
         ui.columns(2, |c| {
-            field_with(
-                &mut c[0],
-                "GST state code",
-                &mut s.form.state_code,
-                "e.g. 33 (auto from GSTIN)",
-                fx.opts(FieldId::StateCode),
-            );
+            state_code_display(&mut c[0], &s.form.state_code);
             field_with(
                 &mut c[1],
                 "PIN code",
@@ -1824,6 +1807,55 @@ struct Opts {
     note: Option<String>,
     note_error: bool,
     focus: bool,
+}
+
+fn state_picker(ui: &mut egui::Ui, form: &mut Form) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.label(RichText::new("State").size(11.5).strong().color(MUTED));
+        ui.label(RichText::new("*").size(11.5).color(RED));
+    });
+    let selected = state_name(&form.state_code).unwrap_or("Select state");
+    egui::ComboBox::from_id_salt("aster_supplier_state")
+        .width(ui.available_width())
+        .selected_text(selected)
+        .show_ui(ui, |ui| {
+            for (code, name) in GST_STATES {
+                if ui
+                    .selectable_label(form.state_code == *code, format!("{code}  ·  {name}"))
+                    .clicked()
+                {
+                    form.state_code = (*code).to_owned();
+                    form.state = (*name).to_owned();
+                }
+            }
+        });
+    ui.add_space(4.0);
+}
+
+fn state_code_display(ui: &mut egui::Ui, code: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.label(
+            RichText::new("GST state code")
+                .size(11.5)
+                .strong()
+                .color(MUTED),
+        );
+    });
+    let value = if is_valid_state_code(code) {
+        code
+    } else {
+        "--"
+    };
+    let mut display = value.to_owned();
+    ui.add_enabled(
+        false,
+        egui::TextEdit::singleline(&mut display)
+            .desired_width(f32::INFINITY)
+            .margin(Margin::symmetric(10, 7)),
+    );
+    ui.add_space(4.0);
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {

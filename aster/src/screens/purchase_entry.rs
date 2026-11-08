@@ -1,6 +1,9 @@
 use crate::{
     app::AsterApp,
-    database::{ProductRecord, PurchaseDraft, PurchaseLineDraft, PurchaseSummary, SupplierRecord},
+    database::{
+        ManufacturerOption, NewPurchaseProductDraft, ProductRecord, PurchaseDraft,
+        PurchaseLineDraft, PurchaseSummary, SupplierRecord, UnitOption,
+    },
 };
 use eframe::egui::{
     self, Align, Color32, FontId, Id, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, Sense,
@@ -26,6 +29,7 @@ const RECENT_W: f32 = 336.0;
 const WIDE_BREAKPOINT: f32 = 1120.0;
 const FOOTER_H: f32 = 100.0;
 const RECENT_ROW_H: f32 = 64.0;
+const COLUMN_GAP: f32 = 16.0;
 
 // -------------------------------------------------------------------- state
 
@@ -35,6 +39,9 @@ struct LineForm {
     born: f64,
     product_id: i64,
     product_query: String,
+    /// A product typed in through "New product". It is created when the
+    /// purchase is posted; `product_id` is a negative placeholder until then.
+    new_product: Option<NewPurchaseProductDraft>,
     batch_no: String,
     /// Typed as MM/YY (also accepts MM/YYYY and YYYY-MM-DD).
     expiry: String,
@@ -53,6 +60,7 @@ impl LineForm {
             born,
             product_id: 0,
             product_query: String::new(),
+            new_product: None,
             batch_no: String::new(),
             expiry: String::new(),
             qty: "1".into(),
@@ -66,10 +74,45 @@ impl LineForm {
 
     fn is_blank(&self) -> bool {
         self.product_id == 0
+            && self.new_product.is_none()
             && self.product_query.trim().is_empty()
             && self.batch_no.trim().is_empty()
             && self.expiry.trim().is_empty()
     }
+}
+
+/// What a line currently points at: an existing product or a pending new one.
+struct Resolved<'a> {
+    name: &'a str,
+    gst_percent: f64,
+    hsn: &'a str,
+    maker: &'a str,
+    is_new: bool,
+}
+
+fn resolve<'a>(line: &'a LineForm, products: &'a [ProductRecord]) -> Option<Resolved<'a>> {
+    if let Some(n) = &line.new_product {
+        return Some(Resolved {
+            name: n.name.as_str(),
+            gst_percent: n.gst_percent,
+            hsn: n.hsn_code.as_str(),
+            maker: "",
+            is_new: true,
+        });
+    }
+    if line.product_id <= 0 {
+        return None;
+    }
+    products
+        .iter()
+        .find(|p| p.id == line.product_id)
+        .map(|p| Resolved {
+            name: p.name.as_str(),
+            gst_percent: p.gst_percent,
+            hsn: p.hsn_code.as_str(),
+            maker: p.manufacturer_name.as_str(),
+            is_new: false,
+        })
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -79,12 +122,133 @@ enum Tab {
     Recent,
 }
 
+#[derive(Clone, Debug, Default)]
+struct NewProductForm {
+    target_uid: u64,
+    born: f64,
+
+    name: String,
+    brand_name: String,
+    generic_name: String,
+    composition: String,
+
+    manufacturer_id: Option<i64>,
+    unit_id: Option<i64>,
+
+    hsn_code: String,
+    gst_percent: String,
+    schedule: String,
+    barcode: String,
+    reorder_level: String,
+
+    error: String,
+}
+
+impl NewProductForm {
+    fn blank(target_uid: u64, name: String, now: f64) -> Self {
+        Self {
+            target_uid,
+            born: now,
+            name,
+            reorder_level: "0".into(),
+            ..Default::default()
+        }
+    }
+
+    fn from_draft(target_uid: u64, d: &NewPurchaseProductDraft, now: f64) -> Self {
+        Self {
+            target_uid,
+            born: now,
+            name: d.name.clone(),
+            brand_name: d.brand_name.clone(),
+            generic_name: d.generic_name.clone(),
+            composition: d.composition.clone(),
+            manufacturer_id: d.manufacturer_id,
+            unit_id: d.unit_id,
+            hsn_code: d.hsn_code.clone(),
+            gst_percent: format!("{}", d.gst_percent),
+            schedule: d.schedule.clone(),
+            barcode: d.barcode.clone(),
+            reorder_level: format!("{}", d.reorder_level),
+            error: String::new(),
+        }
+    }
+
+    fn validate(
+        &self,
+        manufacturers: &[ManufacturerOption],
+        units: &[UnitOption],
+    ) -> Result<NewPurchaseProductDraft, String> {
+        let name = self.name.trim();
+
+        if name.is_empty() {
+            return Err("Product name is required.".into());
+        }
+
+        let hsn_code = self.hsn_code.trim();
+
+        if !matches!(hsn_code.len(), 4 | 6 | 8) || !hsn_code.chars().all(|c| c.is_ascii_digit()) {
+            return Err("Enter a valid 4, 6 or 8 digit HSN code.".into());
+        }
+
+        let gst_percent: f64 = self
+            .gst_percent
+            .trim()
+            .parse()
+            .map_err(|_| "Enter a valid GST percentage.")?;
+
+        if !gst_percent.is_finite() || !(0.0..=100.0).contains(&gst_percent) {
+            return Err("GST percentage must be between 0 and 100.".into());
+        }
+
+        let reorder_text = self.reorder_level.trim();
+        let reorder_level: f64 = if reorder_text.is_empty() {
+            0.0
+        } else {
+            reorder_text
+                .parse()
+                .map_err(|_| "Enter a valid reorder level.")?
+        };
+
+        if !reorder_level.is_finite() || reorder_level < 0.0 {
+            return Err("Reorder level cannot be negative.".into());
+        }
+
+        let manufacturer_id = self
+            .manufacturer_id
+            .filter(|id| manufacturers.iter().any(|m| m.id == *id))
+            .ok_or("Select a valid manufacturer.")?;
+
+        let unit_id = self
+            .unit_id
+            .filter(|id| units.iter().any(|u| u.id == *id))
+            .ok_or("Select a valid unit.")?;
+
+        Ok(NewPurchaseProductDraft {
+            name: name.to_string(),
+            brand_name: self.brand_name.trim().to_string(),
+            generic_name: self.generic_name.trim().to_string(),
+            composition: self.composition.trim().to_string(),
+            manufacturer_id: Some(manufacturer_id),
+            unit_id: Some(unit_id),
+            hsn_code: hsn_code.to_string(),
+            gst_percent,
+            schedule: self.schedule.trim().to_string(),
+            barcode: self.barcode.trim().to_string(),
+            reorder_level,
+        })
+    }
+}
+
 #[derive(Clone, Default)]
 struct State {
     loaded: bool,
     suppliers: Vec<SupplierRecord>,
     products: Vec<ProductRecord>,
     recent: Vec<PurchaseSummary>,
+    manufacturers: Vec<ManufacturerOption>,
+    units: Vec<UnitOption>,
+    new_product_form: Option<NewProductForm>,
     supplier_id: i64,
     supplier_invoice_no: String,
     /// DD/MM/YYYY, the same format as the working date.
@@ -117,6 +281,7 @@ impl State {
         self.lines = vec![line];
         self.submitted = false;
         self.confirm_clear = false;
+        self.new_product_form = None;
     }
 
     fn add_line(&mut self, now: f64) {
@@ -240,6 +405,37 @@ fn qty_text(milli: i64) -> String {
     }
 }
 
+/// A small right-aligned text link. Returns true when clicked.
+fn link(ui: &mut egui::Ui, rect: Rect, text: &str, id: Id) -> bool {
+    let ctx = ui.ctx().clone();
+    let response = ui.interact(rect, id, Sense::click());
+    let hot = ctx.animate_bool_with_time(id.with("hot"), response.hovered(), anim(&ctx));
+    let color = mix(PURPLE, PURPLE_DEEP, hot);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), FontId::proportional(11.5), color);
+    let pos = Pos2::new(
+        rect.right() - galley.size().x,
+        rect.center().y - galley.size().y / 2.0,
+    );
+    let underline_y = pos.y + galley.size().y;
+    let width = galley.size().x;
+    ui.painter().galley(pos, galley, color);
+    if hot > 0.0 {
+        ui.painter().line_segment(
+            [
+                Pos2::new(pos.x, underline_y),
+                Pos2::new(pos.x + width, underline_y),
+            ],
+            Stroke::new(1.0_f32, color.gamma_multiply(hot)),
+        );
+    }
+    if response.hovered() {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    response.clicked()
+}
+
 // -------------------------------------------------------------------- dates
 
 fn days_in_month(year: i32, month: u32) -> u32 {
@@ -345,9 +541,10 @@ fn months_between(from: (i32, u32), to: (i32, u32)) -> i32 {
 }
 
 /// Inserts the slash while typing: `0827` → `08/27`, `01052026` → `01/05/2026`.
-fn auto_slash(value: &mut String, groups: &[usize]) {
+/// Returns true when the text was rewritten (the caret must then be moved).
+fn auto_slash(value: &mut String, groups: &[usize]) -> bool {
     if value.contains('/') || value.contains('-') {
-        return;
+        return false;
     }
     let digits: String = value.chars().filter(char::is_ascii_digit).collect();
     let mut out = String::new();
@@ -363,8 +560,23 @@ fn auto_slash(value: &mut String, groups: &[usize]) {
         out.push_str(&digits[taken..end]);
         taken = end;
     }
-    if digits.len() >= groups[0] || digits.len() < value.len() {
+    if (digits.len() >= groups[0] || digits.len() < value.len()) && out != *value {
         *value = out;
+        true
+    } else {
+        false
+    }
+}
+
+/// After rewriting a text box programmatically, keep the caret at the end so
+/// the next typed digit lands after the inserted slash.
+fn cursor_to_end(ctx: &egui::Context, id: Id, text: &str) {
+    if let Some(mut state) = egui::TextEdit::load_state(ctx, id) {
+        let end = egui::text::CCursor::new(text.chars().count());
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(end)));
+        egui::TextEdit::store_state(ctx, id, state);
     }
 }
 
@@ -435,10 +647,10 @@ fn line_calc(line: &LineForm, products: &[ProductRecord]) -> Option<Calc> {
     ) else {
         return None;
     };
-    let p = products.iter().find(|p| p.id == line.product_id)?;
+    let gst_percent = resolve(line, products)?.gst_percent;
     let gross = (q as i128 * rate as i128 / 1000) as i64;
     let base = ((gross as i128 * (10000 - discount) as i128 + 5000) / 10000) as i64;
-    let gst = (p.gst_percent * 100.0).round() as i64;
+    let gst = (gst_percent * 100.0).round() as i64;
     let tax = ((base as i128 * gst as i128 + 5000) / 10000) as i64;
     let net_unit = rate as f64 * (10000 - discount) as f64 / 10000.0;
     let sale = parse_money(&line.sale_rate).unwrap_or(0);
@@ -481,11 +693,11 @@ fn mark(flag: &mut bool, first: &mut Option<String>, message: &str) {
 fn line_errors(line: &LineForm, products: &[ProductRecord], invoice_ym: (i32, u32)) -> LineErr {
     let mut e = LineErr::default();
     let mut first = None;
-    if line.product_id == 0 || !products.iter().any(|p| p.id == line.product_id) {
+    if resolve(line, products).is_none() {
         mark(
             &mut e.product,
             &mut first,
-            "select a product from the list.",
+            "select a product from the list or create a new one.",
         );
     }
     if line.batch_no.trim().is_empty() {
@@ -572,6 +784,29 @@ fn invoice_ym(s: &State, app: &AsterApp) -> (i32, u32) {
         })
 }
 
+/// The left column: a scrolling form with the totals bar pinned underneath,
+/// so Post is always on screen however many items are added.
+fn entry_column(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h: f32, now: f64) {
+    ui.set_width(w);
+    let scroll_h = (h - FOOTER_H - 12.0).max(220.0);
+
+    egui::ScrollArea::vertical()
+        .id_salt("pe_entry_scroll")
+        .auto_shrink([false, false])
+        .min_scrolled_height(scroll_h)
+        .max_height(scroll_h)
+        .show(ui, |ui| {
+            ui.set_width(w);
+            ui.spacing_mut().item_spacing.y = 12.0;
+            invoice_card(ui, s, app, w, now);
+            items_card(ui, s, app, w, now);
+            ui.add_space(4.0);
+        });
+
+    ui.add_space(12.0);
+    footer_card(ui, s, app, w, now);
+}
+
 // -------------------------------------------------------------------- page
 
 pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
@@ -586,16 +821,18 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         reload(&mut s, app);
     }
 
+    // Shortcuts are ignored while the create-product dialog is open.
+    let dialog_open = s.new_product_form.is_some();
     let (post_key, add_key) = ctx.input(|i| {
         (
             i.modifiers.command && i.key_pressed(Key::Enter),
             i.modifiers.command && i.key_pressed(Key::N),
         )
     });
-    if add_key {
+    if add_key && !dialog_open {
         s.add_line(now);
     }
-    if post_key {
+    if post_key && !dialog_open {
         post(&mut s, app, now);
     }
 
@@ -664,26 +901,33 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
         });
         ui.add_space(14.0);
 
-        // ---- body (fits the remaining page height so nothing is pushed off-screen)
+        // ---- body
         let free = ui.available_height();
         let body_h = if free.is_finite() && free < 6000.0 {
             free
         } else {
             ctx.content_rect().bottom() - page_top - 96.0
         }
-        .max(440.0);
+        .max(420.0);
 
         if wide {
+            let entry_w = total_w - RECENT_W - COLUMN_GAP;
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                entry_panel(ui, &mut s, app, total_w - RECENT_W - 16.0, body_h, now);
+                ui.spacing_mut().item_spacing.x = COLUMN_GAP;
+                ui.vertical(|ui| {
+                    entry_column(ui, &mut s, app, entry_w, body_h, now);
+                });
                 recent_panel(ui, &s, RECENT_W, body_h);
             });
         } else if s.tab == Tab::Entry {
-            entry_panel(ui, &mut s, app, total_w, body_h, now);
+            ui.vertical(|ui| {
+                entry_column(ui, &mut s, app, total_w, body_h, now);
+            });
         } else {
             recent_panel(ui, &s, total_w, body_h);
         }
+
+        render_new_product_dialog(&ctx, &mut s, now);
     });
 
     ctx.data_mut(|d| d.insert_temp(key, s));
@@ -731,22 +975,6 @@ fn card<R>(
             content(ui)
         })
         .inner
-}
-
-fn entry_panel(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, h: f32, now: f64) {
-    ui.allocate_ui_with_layout(Vec2::new(w, h), Layout::top_down(Align::Min), |ui| {
-        ui.set_min_size(Vec2::new(w, h));
-        ui.spacing_mut().item_spacing.y = 12.0;
-        let top = ui.cursor().top();
-
-        invoice_card(ui, s, app, w, now);
-
-        let used = ui.cursor().top() - top;
-        let items_h = (h - used - FOOTER_H - 12.0).max(240.0);
-        items_card(ui, s, app, w, items_h, now);
-
-        footer_card(ui, s, app, w, now);
-    });
 }
 
 fn label(ui: &mut egui::Ui, text: &str, required: bool) {
@@ -816,15 +1044,16 @@ fn invoice_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, _now: 
             ui.vertical(|ui| {
                 ui.set_width(widths[2]);
                 label(ui, "INVOICE DATE", true);
+                let date_id = Id::new("pe_inv_date");
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut s.invoice_date)
-                        .id(Id::new("pe_inv_date"))
+                        .id(date_id)
                         .hint_text("DD/MM/YYYY")
                         .margin(Margin::symmetric(10, 7))
                         .desired_width(widths[2]),
                 );
-                if r.changed() {
-                    auto_slash(&mut s.invoice_date, &[2, 2, 4]);
+                if r.changed() && auto_slash(&mut s.invoice_date, &[2, 2, 4]) {
+                    cursor_to_end(ui.ctx(), date_id, &s.invoice_date);
                 }
                 outline_error(
                     ui,
@@ -958,11 +1187,15 @@ fn supplier_combo(
 struct LineEvent {
     remove: bool,
     enter_last: bool,
+    /// Open the "create product" dialog, prefilled with this name.
+    new_product: Option<String>,
+    /// Re-open the dialog for the product already created on this line.
+    edit_product: bool,
 }
 
-fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, h: f32, now: f64) {
+fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, now: f64) {
     let ym = invoice_ym(s, app);
-    card(ui, w, Some(h), |ui| {
+    card(ui, w, None, |ui| {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(
@@ -973,7 +1206,7 @@ fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, h: f32, 
                 );
                 ui.label(
                     RichText::new(
-                        "Search a medicine, then enter batch, expiry, quantity and rates.",
+                        "Search a medicine, or create it on the spot, then enter batch, expiry, quantity and rates.",
                     )
                     .size(12.0)
                     .color(MUTED),
@@ -1002,12 +1235,13 @@ fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, h: f32, 
                 );
             });
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        let scroll_h = ui.available_height().max(120.0);
         let scroll_last = std::mem::take(&mut s.scroll_to_last);
         let mut remove = None;
         let mut enter_last = false;
+        let mut open_new: Option<(usize, String)> = None;
+        let mut edit_idx: Option<usize> = None;
         let State {
             lines,
             products,
@@ -1032,46 +1266,57 @@ fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, h: f32, 
             .collect();
         let count = lines.len();
 
-        egui::ScrollArea::vertical()
-            .id_salt("pe_items_scroll")
-            .auto_shrink([false, false])
-            .max_height(scroll_h)
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 10.0;
-                for (i, line) in lines.iter_mut().enumerate() {
-                    let ev = line_card(
-                        ui,
-                        line,
-                        i,
-                        products,
-                        *submitted,
-                        focus,
-                        dup[i],
-                        now,
-                        i + 1 == count,
-                        ym,
-                    );
-                    if scroll_last && i + 1 == count {
-                        ui.scroll_to_cursor(Some(Align::BOTTOM));
-                    }
-                    if ev.remove {
-                        remove = Some(i);
-                    }
-                    if ev.enter_last {
-                        enter_last = true;
-                    }
+        ui.spacing_mut().item_spacing.y = 10.0;
+        for (i, line) in lines.iter_mut().enumerate() {
+            let ev = line_card(
+                ui,
+                line,
+                i,
+                products,
+                *submitted,
+                focus,
+                dup[i],
+                now,
+                i + 1 == count,
+                ym,
+            );
+            if scroll_last && i + 1 == count {
+                ui.scroll_to_cursor(Some(Align::BOTTOM));
+            }
+            if ev.remove {
+                remove = Some(i);
+            }
+            if ev.enter_last {
+                enter_last = true;
+            }
+            if let Some(q) = ev.new_product {
+                open_new = Some((i, q));
+            }
+            if ev.edit_product {
+                edit_idx = Some(i);
+            }
+        }
+        if products.is_empty() {
+            ui.label(
+                RichText::new(
+                    "No active products found. Use “New product” on a line to create one here.",
+                )
+                .size(12.0)
+                .color(AMBER),
+            );
+        }
+
+        if let Some((i, query)) = open_new {
+            if let Some(l) = s.lines.get(i) {
+                s.new_product_form = Some(NewProductForm::blank(l.uid, query, now));
+            }
+        } else if let Some(i) = edit_idx {
+            if let Some(l) = s.lines.get(i) {
+                if let Some(d) = &l.new_product {
+                    s.new_product_form = Some(NewProductForm::from_draft(l.uid, d, now));
                 }
-                if products.is_empty() {
-                    ui.label(
-                        RichText::new(
-                            "No active products found. Add or activate products in Product Master first.",
-                        )
-                        .size(12.0)
-                        .color(RED),
-                    );
-                }
-                ui.add_space(4.0);
-            });
+            }
+        }
 
         if let Some(i) = remove {
             if s.lines.len() > 1 {
@@ -1085,6 +1330,325 @@ fn items_card(ui: &mut egui::Ui, s: &mut State, app: &AsterApp, w: f32, h: f32, 
         if enter_last {
             s.add_line(now);
         }
+    });
+}
+
+// ------------------------------------------------------ new product dialog
+
+fn render_new_product_dialog(ctx: &egui::Context, s: &mut State, now: f64) {
+    let Some(mut form) = s.new_product_form.take() else {
+        return;
+    };
+
+    let mut open = true;
+    let mut save_clicked = false;
+    let mut cancel_clicked = ctx.input(|i| i.key_pressed(Key::Escape));
+
+    let opacity = if anim(ctx) == 0.0 {
+        1.0
+    } else {
+        ease_out(((now - form.born) / 0.18).clamp(0.0, 1.0) as f32)
+    };
+    if opacity < 1.0 {
+        ctx.request_repaint();
+    }
+
+    // dimmed backdrop that also blocks clicks on the page behind the dialog
+    let screen = ctx.content_rect();
+    egui::Area::new(Id::new("pe_new_product_backdrop"))
+        .order(egui::Order::Middle)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(screen.size(), Sense::click_and_drag());
+            ui.painter().rect_filled(
+                rect,
+                0.0,
+                Color32::from_black_alpha((110.0 * opacity) as u8),
+            );
+        });
+
+    let can_save = !s.manufacturers.is_empty() && !s.units.is_empty();
+
+    egui::Window::new("Create product for this purchase")
+        .id(Id::new("pe_new_product_dialog"))
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(560.0)
+        .min_width(560.0)
+        .max_width(560.0)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.scope(|ui| {
+                ui.set_opacity(opacity);
+                ui.set_min_width(520.0);
+                ui.spacing_mut().item_spacing.y = 8.0;
+
+                ui.label(
+                    RichText::new("Register the medicine once, then receive its batch below.")
+                        .size(12.0)
+                        .color(MUTED),
+                );
+                ui.add_space(6.0);
+
+                egui::ScrollArea::vertical()
+                    .id_salt("pe_new_product_form_scroll")
+                    .max_height(430.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        egui::Grid::new("pe_new_product_form_grid")
+                            .num_columns(2)
+                            .spacing(Vec2::new(14.0, 12.0))
+                            .show(ui, |ui| {
+                                modal_text_field(
+                                    ui,
+                                    "PRODUCT NAME",
+                                    true,
+                                    &mut form.name,
+                                    "e.g. Paracetamol 500",
+                                );
+                                modal_text_field(
+                                    ui,
+                                    "BRAND NAME",
+                                    false,
+                                    &mut form.brand_name,
+                                    "Brand / trade name",
+                                );
+                                ui.end_row();
+
+                                modal_text_field(
+                                    ui,
+                                    "GENERIC NAME",
+                                    false,
+                                    &mut form.generic_name,
+                                    "Generic medicine name",
+                                );
+                                modal_text_field(
+                                    ui,
+                                    "COMPOSITION",
+                                    false,
+                                    &mut form.composition,
+                                    "Composition / strength",
+                                );
+                                ui.end_row();
+
+                                ui.vertical(|ui| {
+                                    ui.set_width(245.0);
+                                    label(ui, "MANUFACTURER", true);
+                                    let selected = form
+                                        .manufacturer_id
+                                        .and_then(|id| s.manufacturers.iter().find(|m| m.id == id))
+                                        .map(|m| m.name.as_str())
+                                        .unwrap_or("Select manufacturer");
+                                    egui::ComboBox::from_id_salt("pe_new_product_manufacturer")
+                                        .width(225.0)
+                                        .selected_text(selected)
+                                        .show_ui(ui, |ui| {
+                                            for m in &s.manufacturers {
+                                                ui.selectable_value(
+                                                    &mut form.manufacturer_id,
+                                                    Some(m.id),
+                                                    &m.name,
+                                                );
+                                            }
+                                        });
+                                });
+                                ui.vertical(|ui| {
+                                    ui.set_width(245.0);
+                                    label(ui, "UNIT", true);
+                                    let selected = form
+                                        .unit_id
+                                        .and_then(|id| s.units.iter().find(|u| u.id == id))
+                                        .map(|u| u.name.as_str())
+                                        .unwrap_or("Select unit");
+                                    egui::ComboBox::from_id_salt("pe_new_product_unit")
+                                        .width(225.0)
+                                        .selected_text(selected)
+                                        .show_ui(ui, |ui| {
+                                            for unit in &s.units {
+                                                ui.selectable_value(
+                                                    &mut form.unit_id,
+                                                    Some(unit.id),
+                                                    &unit.name,
+                                                );
+                                            }
+                                        });
+                                });
+                                ui.end_row();
+
+                                modal_text_field(
+                                    ui,
+                                    "HSN CODE",
+                                    true,
+                                    &mut form.hsn_code,
+                                    "4, 6 or 8 digits",
+                                );
+                                modal_text_field(
+                                    ui,
+                                    "GST %",
+                                    true,
+                                    &mut form.gst_percent,
+                                    "e.g. 5",
+                                );
+                                ui.end_row();
+
+                                modal_text_field(
+                                    ui,
+                                    "SCHEDULE",
+                                    false,
+                                    &mut form.schedule,
+                                    "e.g. H / H1 / OTC",
+                                );
+                                modal_text_field(
+                                    ui,
+                                    "BARCODE",
+                                    false,
+                                    &mut form.barcode,
+                                    "Optional barcode",
+                                );
+                                ui.end_row();
+
+                                modal_text_field(
+                                    ui,
+                                    "REORDER LEVEL",
+                                    false,
+                                    &mut form.reorder_level,
+                                    "Minimum stock alert",
+                                );
+                                ui.vertical(|ui| {
+                                    ui.set_width(245.0);
+                                    label(ui, "STOCK HANDLING", false);
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(
+                                            "Created and stocked only when this purchase is posted.",
+                                        )
+                                        .size(11.0)
+                                        .color(GREEN),
+                                    );
+                                });
+                                ui.end_row();
+                            });
+                    });
+
+                if !can_save {
+                    ui.label(
+                        RichText::new(
+                            "A manufacturer and unit are required. Add the missing master data first, then reopen this form.",
+                        )
+                        .size(11.5)
+                        .color(AMBER),
+                    );
+                }
+                if !form.error.is_empty() {
+                    ui.label(RichText::new(&form.error).size(11.5).color(RED));
+                }
+
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if button(
+                        ui,
+                        "Add product to purchase",
+                        210.0,
+                        38.0,
+                        Style::Primary,
+                        can_save,
+                        "pe_new_product_save",
+                    )
+                    .clicked()
+                    {
+                        save_clicked = true;
+                    }
+                    if button(
+                        ui,
+                        "Cancel",
+                        104.0,
+                        38.0,
+                        Style::Ghost,
+                        true,
+                        "pe_new_product_cancel",
+                    )
+                    .clicked()
+                    {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+        });
+
+    if save_clicked {
+        match form.validate(&s.manufacturers, &s.units) {
+            Ok(draft) => {
+                let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+                let duplicate_existing = s.products.iter().any(|p| {
+                    same(&p.name, &draft.name)
+                        && same(&p.brand_name, &draft.brand_name)
+                        && same(&p.composition, &draft.composition)
+                });
+                let duplicate_pending = s.lines.iter().any(|l| {
+                    l.uid != form.target_uid
+                        && l.new_product.as_ref().map_or(false, |n| {
+                            same(&n.name, &draft.name)
+                                && same(&n.brand_name, &draft.brand_name)
+                                && same(&n.composition, &draft.composition)
+                        })
+                });
+
+                if duplicate_existing {
+                    form.error =
+                        "This product already exists. Cancel and select it from the product search."
+                            .into();
+                    s.new_product_form = Some(form);
+                    return;
+                }
+                if duplicate_pending {
+                    form.error =
+                        "This product is already being created on another line. Select it from the search there."
+                            .into();
+                    s.new_product_form = Some(form);
+                    return;
+                }
+
+                if let Some(line) = s.lines.iter_mut().find(|line| line.uid == form.target_uid) {
+                    // Negative ID = temporary product, not a database ID.
+                    line.product_id = -(line.uid as i64);
+                    line.product_query = draft.name.clone();
+                    line.new_product = Some(draft);
+                    s.focus = Some(field_id(line.uid, 0));
+                    s.message =
+                        "Product added to this purchase draft. It will be saved with the stock when you post."
+                            .into();
+                    s.error = false;
+                    s.confirm_clear = false;
+                }
+            }
+            Err(error) => {
+                form.error = error;
+                s.new_product_form = Some(form);
+            }
+        }
+    } else if !cancel_clicked && open {
+        s.new_product_form = Some(form);
+    }
+}
+
+fn modal_text_field(
+    ui: &mut egui::Ui,
+    title: &str,
+    required: bool,
+    value: &mut String,
+    hint: &str,
+) {
+    ui.vertical(|ui| {
+        ui.set_width(245.0);
+        label(ui, title, required);
+        ui.add_sized(
+            Vec2::new(235.0, 32.0),
+            egui::TextEdit::singleline(value)
+                .hint_text(hint)
+                .margin(Margin::symmetric(9, 6)),
+        );
     });
 }
 
@@ -1155,8 +1719,9 @@ fn line_card(
                         mid_w,
                         submitted && errors.product,
                         focus,
+                        &mut ev.new_product,
                     );
-                    product_meta(ui, line, products, submitted && errors.product);
+                    product_meta(ui, line, products, submitted && errors.product, &mut ev);
                 });
             });
 
@@ -1186,7 +1751,7 @@ fn line_card(
             ui.add_space(8.0);
 
             // ---- row B: numeric fields on a fixed grid
-            let avail = ui.available_width();
+            let avail = ui.available_width().max(320.0);
             let per_row: usize = if avail >= 640.0 { 8 } else { 4 };
             let weights = [1.5_f32, 1.05, 0.9, 0.8, 1.1, 0.9, 1.1, 1.1];
             let gap = 8.0;
@@ -1229,8 +1794,8 @@ fn line_card(
                             numeric,
                             submitted && bad,
                         );
-                        if idx == 1 && r.changed() {
-                            auto_slash(&mut line.expiry, &[2, 4]);
+                        if idx == 1 && r.changed() && auto_slash(&mut line.expiry, &[2, 4]) {
+                            cursor_to_end(ui.ctx(), id, &line.expiry);
                         }
                         if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                             if idx == 7 {
@@ -1316,6 +1881,7 @@ fn product_search(
     width: f32,
     error: bool,
     focus: &mut Option<Id>,
+    create: &mut Option<String>,
 ) {
     let ctx = ui.ctx().clone();
     let pid = prod_id(line.uid);
@@ -1357,16 +1923,20 @@ fn product_search(
     outline_error(ui, response.rect, error, pid.with("err"));
 
     if response.changed() {
-        if let Some(p) = products.iter().find(|p| p.id == line.product_id) {
-            if line.product_query.trim().to_lowercase() != p.name.to_lowercase() {
+        // Editing the text of a chosen product un-chooses it.
+        let chosen = resolve(line, products).map(|r| r.name.trim().to_lowercase());
+        if let Some(name) = chosen {
+            if line.product_query.trim().to_lowercase() != name {
                 line.product_id = 0;
+                line.new_product = None;
             }
         }
         highlight = 0;
     }
 
     // ---- results
-    let query = line.product_query.trim().to_lowercase();
+    let raw_query = line.product_query.trim().to_owned();
+    let query = raw_query.to_lowercase();
     let last_rect: Option<Rect> = ctx.data(|d| d.get_temp(rect_id));
     let pointer_inside = last_rect
         .zip(ctx.input(|i| i.pointer.hover_pos()))
@@ -1401,17 +1971,18 @@ fn product_search(
     });
     matches.truncate(7);
 
+    // index == matches.len() is the "create new product" row
+    let create_index = matches.len();
     if down {
         highlight += 1;
     }
     if up {
         highlight = highlight.saturating_sub(1);
     }
-    if !matches.is_empty() {
-        highlight = highlight.min(matches.len() - 1);
-    }
+    highlight = highlight.min(create_index);
 
     let mut picked: Option<&ProductRecord> = None;
+    let mut create_requested = false;
     if show {
         let area = egui::Area::new(Id::new(("pe_pop", line.uid)))
             .order(egui::Order::Foreground)
@@ -1487,6 +2058,40 @@ fn product_search(
                                 picked = Some(*p);
                             }
                         }
+
+                        // ---- create-new row, always last
+                        ui.add_space(2.0);
+                        let (sep, _) = ui.allocate_exact_size(Vec2::new(w, 1.0), Sense::hover());
+                        ui.painter().rect_filled(sep, 0.0, BORDER);
+                        let (r, rr) = ui.allocate_exact_size(Vec2::new(w, 38.0), Sense::click());
+                        let hot = rr.hovered() || highlight == create_index;
+                        if hot {
+                            ui.painter().rect_filled(r, 7.0, TINT);
+                        }
+                        let text = if raw_query.is_empty() {
+                            "＋  Create a new product".to_owned()
+                        } else {
+                            format!("＋  Create “{raw_query}” as a new product")
+                        };
+                        paint_text(
+                            ui,
+                            Rect::from_min_size(
+                                r.min + Vec2::new(10.0, 0.0),
+                                Vec2::new(w - 20.0, 38.0),
+                            ),
+                            &text,
+                            12.5,
+                            PURPLE,
+                            true,
+                        );
+                        if rr.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            highlight = create_index;
+                        }
+                        if rr.hovered() && ui.input(|i| i.pointer.primary_pressed()) || rr.clicked()
+                        {
+                            create_requested = true;
+                        }
                     });
             });
         ctx.data_mut(|d| d.insert_temp(rect_id, area.response.rect));
@@ -1494,40 +2099,88 @@ fn product_search(
         ctx.data_mut(|d| d.remove::<Rect>(rect_id));
     }
 
-    if enter && show && !matches.is_empty() {
-        picked = matches.get(highlight).copied();
+    if enter && show {
+        if highlight < matches.len() {
+            picked = matches.get(highlight).copied();
+        } else if !raw_query.is_empty() {
+            create_requested = true;
+        }
     }
     if let Some(p) = picked {
         line.product_id = p.id;
+        line.new_product = None;
         line.product_query = p.name.clone();
         *focus = Some(field_id(line.uid, 0));
+    } else if create_requested {
+        *create = Some(raw_query);
     }
     ctx.data_mut(|d| {
-        d.insert_temp(open_id, show && picked.is_none());
+        d.insert_temp(open_id, show && picked.is_none() && !create_requested);
         d.insert_temp(hl_id, highlight);
     });
 }
 
-fn product_meta(ui: &mut egui::Ui, line: &LineForm, products: &[ProductRecord], error: bool) {
-    ui.add_space(2.0);
+fn product_meta(
+    ui: &mut egui::Ui,
+    line: &LineForm,
+    products: &[ProductRecord],
+    error: bool,
+    ev: &mut LineEvent,
+) {
+    ui.add_space(3.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 16.0), Sense::hover());
-    let text = match products.iter().find(|p| p.id == line.product_id) {
-        Some(p) => {
-            let mut parts = vec![if p.hsn_code.trim().is_empty() {
+    let link_w = 116.0;
+    let text_rect =
+        Rect::from_min_max(rect.min, Pos2::new(rect.right() - link_w - 8.0, rect.max.y));
+    let link_rect = Rect::from_min_max(Pos2::new(rect.right() - link_w, rect.min.y), rect.max);
+    let link_id = Id::new(("pe_meta_link", line.uid));
+
+    match resolve(line, products) {
+        Some(r) if r.is_new => {
+            let hsn = if r.hsn.trim().is_empty() {
                 "HSN not set".to_owned()
             } else {
-                format!("HSN {}", p.hsn_code)
-            }];
-            parts.push(format!("GST {:.2}%", p.gst_percent));
-            if !p.manufacturer_name.trim().is_empty() {
-                parts.push(p.manufacturer_name.clone());
+                format!("HSN {}", r.hsn)
+            };
+            paint_text(
+                ui,
+                text_rect,
+                &format!(
+                    "NEW PRODUCT   ·   {hsn}   ·   GST {:.2}%   ·   saved when you post",
+                    r.gst_percent
+                ),
+                11.0,
+                GREEN,
+                false,
+            );
+            if link(ui, link_rect, "Edit details", link_id) {
+                ev.edit_product = true;
             }
-            (parts.join("   ·   "), MUTED)
         }
-        None if error => ("Choose a medicine from the suggestions.".to_owned(), RED),
-        None => ("No medicine selected yet.".to_owned(), FAINT),
-    };
-    paint_text(ui, rect, &text.0, 11.0, text.1, false);
+        Some(r) => {
+            let mut parts = vec![if r.hsn.trim().is_empty() {
+                "HSN not set".to_owned()
+            } else {
+                format!("HSN {}", r.hsn)
+            }];
+            parts.push(format!("GST {:.2}%", r.gst_percent));
+            if !r.maker.trim().is_empty() {
+                parts.push(r.maker.to_owned());
+            }
+            paint_text(ui, text_rect, &parts.join("   ·   "), 11.0, MUTED, false);
+        }
+        None => {
+            let (text, color) = if error {
+                ("Choose a medicine from the suggestions, or create it.", RED)
+            } else {
+                ("No medicine selected yet.", FAINT)
+            };
+            paint_text(ui, text_rect, text, 11.0, color, false);
+            if link(ui, link_rect, "＋ New product", link_id) {
+                ev.new_product = Some(line.product_query.trim().to_owned());
+            }
+        }
+    }
 }
 
 fn line_summary(
@@ -1545,10 +2198,8 @@ fn line_summary(
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let calc = line_calc(line, products);
-            let gst = products
-                .iter()
-                .find(|p| p.id == line.product_id)
-                .map(|p| p.gst_percent)
+            let gst = resolve(line, products)
+                .map(|r| r.gst_percent)
                 .unwrap_or(0.0);
             let c = calc.unwrap_or_default();
             ui.horizontal_wrapped(|ui| {
@@ -1690,7 +2341,7 @@ fn footer_card(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, now
                     paint_text(
                         ui,
                         rect,
-                        "GST rates come from Product Master. CGST + SGST or IGST is split at posting.",
+                        "Same state: CGST + SGST  ·  Other states: IGST. Tax is split automatically when posted.",
                         11.0,
                         FAINT,
                         false,
@@ -1718,7 +2369,10 @@ fn footer_card(ui: &mut egui::Ui, s: &mut State, app: &mut AsterApp, w: f32, now
                         ("Clear all", Style::Ghost)
                     };
                     if button(ui, label, 136.0, 38.0, style, true, "pe_clear").clicked() {
-                        if s.confirm_clear || (s.lines.iter().all(LineForm::is_blank) && s.supplier_invoice_no.is_empty()) {
+                        if s.confirm_clear
+                            || (s.lines.iter().all(LineForm::is_blank)
+                                && s.supplier_invoice_no.is_empty())
+                        {
                             s.reset(&app.date_text, now);
                             s.message.clear();
                         } else {
@@ -2030,9 +2684,40 @@ fn post(s: &mut State, app: &mut AsterApp, now: f64) {
             s.error = true;
             return;
         }
+
+        // A product created inline may have been added to Product Master
+        // meanwhile (e.g. after a refresh); never create it twice.
+        if let Some(n) = &l.new_product {
+            let exists = s.products.iter().any(|p| {
+                p.name.trim().eq_ignore_ascii_case(n.name.trim())
+                    && p.brand_name
+                        .trim()
+                        .eq_ignore_ascii_case(n.brand_name.trim())
+                    && p.composition
+                        .trim()
+                        .eq_ignore_ascii_case(n.composition.trim())
+            });
+            if exists {
+                s.message = format!(
+                    "Line {}: “{}” already exists in Product Master. Select it from the search instead.",
+                    i + 1,
+                    n.name
+                );
+                s.error = true;
+                return;
+            }
+        }
+
         let built = (|| -> Result<PurchaseLineDraft, String> {
             Ok(PurchaseLineDraft {
-                product_id: l.product_id,
+                // The new product is created together with the purchase; the
+                // negative placeholder id must never reach the database.
+                new_product: l.new_product.clone(),
+                product_id: if l.new_product.is_some() {
+                    0
+                } else {
+                    l.product_id
+                },
                 batch_no: l.batch_no.trim().into(),
                 expiry_date: expiry_iso(parse_expiry(&l.expiry).ok_or("Invalid expiry.")?),
                 quantity_milli: parse_qty(&l.qty, "Quantity", false)?,
@@ -2100,9 +2785,13 @@ fn reload(s: &mut State, app: &AsterApp) {
         s.recent = db
             .recent_purchases(app.selected_year, 40)
             .unwrap_or_default();
+        s.manufacturers = db.manufacturers(app.selected_year).unwrap_or_default();
+        s.units = db.units(app.selected_year).unwrap_or_default();
     } else {
         s.suppliers.clear();
         s.products.clear();
         s.recent.clear();
+        s.manufacturers.clear();
+        s.units.clear();
     }
 }

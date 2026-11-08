@@ -883,6 +883,11 @@ fn show_totals(ui: &mut egui::Ui, state: &mut SalesState) {
 
     summary_row(ui, "Taxable amount", state.taxable());
     summary_row(ui, "GST", state.tax());
+    ui.label(
+        egui::RichText::new("Same state: CGST + SGST  ·  Other states: IGST")
+            .size(10.5)
+            .color(MUTED),
+    );
 
     ui.add_space(4.0);
 

@@ -20,6 +20,146 @@ const CURRENT_YEAR_SCHEMA: i64 = 8;
 const MIN_FINANCIAL_YEAR: i32 = 1900;
 const MAX_FINANCIAL_YEAR: i32 = 9998;
 
+/// Single source of truth for Indian GST state / jurisdiction codes.
+/// Persist the code; use the name only for display.
+pub(crate) const GST_STATES: &[(&str, &str)] = &[
+    ("01", "Jammu & Kashmir"),
+    ("02", "Himachal Pradesh"),
+    ("03", "Punjab"),
+    ("04", "Chandigarh"),
+    ("05", "Uttarakhand"),
+    ("06", "Haryana"),
+    ("07", "Delhi"),
+    ("08", "Rajasthan"),
+    ("09", "Uttar Pradesh"),
+    ("10", "Bihar"),
+    ("11", "Sikkim"),
+    ("12", "Arunachal Pradesh"),
+    ("13", "Nagaland"),
+    ("14", "Manipur"),
+    ("15", "Mizoram"),
+    ("16", "Tripura"),
+    ("17", "Meghalaya"),
+    ("18", "Assam"),
+    ("19", "West Bengal"),
+    ("20", "Jharkhand"),
+    ("21", "Odisha"),
+    ("22", "Chhattisgarh"),
+    ("23", "Madhya Pradesh"),
+    ("24", "Gujarat"),
+    ("26", "Dadra & Nagar Haveli and Daman & Diu"),
+    ("27", "Maharashtra"),
+    ("29", "Karnataka"),
+    ("30", "Goa"),
+    ("31", "Lakshadweep"),
+    ("32", "Kerala"),
+    ("33", "Tamil Nadu"),
+    ("34", "Puducherry"),
+    ("35", "Andaman & Nicobar Islands"),
+    ("36", "Telangana"),
+    ("37", "Andhra Pradesh"),
+    ("38", "Ladakh"),
+    ("97", "Other Territory"),
+    ("99", "Centre Jurisdiction"),
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GstType {
+    IntraState,
+    InterState,
+}
+
+pub(crate) fn state_name(code: &str) -> Option<&'static str> {
+    GST_STATES
+        .iter()
+        .find_map(|(known_code, name)| (*known_code == code.trim()).then_some(*name))
+}
+
+pub(crate) fn is_valid_state_code(code: &str) -> bool {
+    state_name(code).is_some()
+}
+
+pub(crate) fn gst_type_for_states(
+    company_state_code: &str,
+    counterparty_state_code: &str,
+) -> Result<GstType, String> {
+    let company_code = company_state_code.trim();
+    let counterparty_code = counterparty_state_code.trim();
+    if !is_valid_state_code(company_code) {
+        return Err("Set a valid company GST state in Company Settings before posting.".into());
+    }
+    if !is_valid_state_code(counterparty_code) {
+        return Err("Select a valid state for the customer or supplier before posting.".into());
+    }
+    Ok(if company_code == counterparty_code {
+        GstType::IntraState
+    } else {
+        GstType::InterState
+    })
+}
+
+pub(crate) fn validate_gstin_state(
+    gstin: &str,
+    state_code: &str,
+    label: &str,
+    required: bool,
+) -> Result<(), String> {
+    let gstin = gstin.trim().to_ascii_uppercase();
+    if gstin.is_empty() {
+        return if required {
+            Err(format!("{label} GSTIN is required."))
+        } else {
+            Ok(())
+        };
+    }
+    if gstin.len() != 15 || !gstin.is_ascii() {
+        return Err(format!("{label} GSTIN must contain 15 characters."));
+    }
+    let bytes = gstin.as_bytes();
+    let valid_shape = bytes[0..2].iter().all(u8::is_ascii_digit)
+        && bytes[2..7].iter().all(u8::is_ascii_uppercase)
+        && bytes[7..11].iter().all(u8::is_ascii_digit)
+        && bytes[11].is_ascii_uppercase()
+        && bytes[12].is_ascii_alphanumeric()
+        && bytes[13] == b'Z'
+        && bytes[14].is_ascii_alphanumeric();
+    if !valid_shape {
+        return Err(format!("{label} GSTIN format is invalid."));
+    }
+    let gstin_state = &gstin[..2];
+    if !is_valid_state_code(gstin_state) {
+        return Err(format!(
+            "{label} GSTIN contains an unrecognised state code."
+        ));
+    }
+    if gstin_state != state_code.trim() {
+        return Err(format!(
+            "{label} GSTIN state code does not match the selected state."
+        ));
+    }
+    Ok(())
+}
+
+fn calculate_gst_split(
+    taxable_paise: i64,
+    gst_basis_points: i64,
+    gst_type: GstType,
+) -> Result<(i64, i64, i64), &'static str> {
+    if taxable_paise < 0 || !(0..=10_000).contains(&gst_basis_points) {
+        return Err("GST calculation received an invalid taxable amount or rate.");
+    }
+    let tax_paise: i64 = ((taxable_paise as i128 * gst_basis_points as i128 + 5_000) / 10_000)
+        .try_into()
+        .map_err(|_| "GST amount overflow.")?;
+    Ok(match gst_type {
+        GstType::IntraState => {
+            let cgst = tax_paise / 2;
+            (cgst, tax_paise - cgst, 0)
+        }
+        GstType::InterState => (0, 0, tax_paise),
+    })
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CompanySettings {
     pub legal_name: String,
@@ -133,9 +273,25 @@ pub(crate) struct SupplierProductLink {
     pub min_order_qty: f64,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct NewPurchaseProductDraft {
+    pub name: String,
+    pub brand_name: String,
+    pub generic_name: String,
+    pub composition: String,
+    pub manufacturer_id: Option<i64>,
+    pub unit_id: Option<i64>,
+    pub hsn_code: String,
+    pub gst_percent: f64,
+    pub schedule: String,
+    pub barcode: String,
+    pub reorder_level: f64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PurchaseLineDraft {
     pub product_id: i64,
+    pub new_product: Option<NewPurchaseProductDraft>,
     pub batch_no: String,
     pub expiry_date: String,
     pub quantity_milli: i64,
@@ -277,6 +433,131 @@ impl Database {
             db.initialize_year_database(start_year)?;
         }
         Ok(db)
+    }
+
+    fn insert_purchase_product(
+        tx: &rusqlite::Transaction<'_>,
+        product: &NewPurchaseProductDraft,
+        line_no: usize,
+    ) -> Result<i64, String> {
+        let name = product.name.trim();
+        let brand = product.brand_name.trim();
+        let composition = product.composition.trim();
+        let hsn = product.hsn_code.trim();
+
+        if name.is_empty() {
+            return Err(format!("Line {line_no}: product name is required."));
+        }
+
+        if hsn.is_empty() {
+            return Err(format!("Line {line_no}: HSN code is required."));
+        }
+
+        if !product.gst_percent.is_finite() || !(0.0..=100.0).contains(&product.gst_percent) {
+            return Err(format!("Line {line_no}: GST must be between 0 and 100."));
+        }
+
+        if !product.reorder_level.is_finite() || product.reorder_level < 0.0 {
+            return Err(format!("Line {line_no}: reorder level cannot be negative."));
+        }
+
+        let manufacturer_id = product
+            .manufacturer_id
+            .filter(|id| *id > 0)
+            .ok_or_else(|| format!("Line {line_no}: select a manufacturer."))?;
+
+        let unit_id = product
+            .unit_id
+            .filter(|id| *id > 0)
+            .ok_or_else(|| format!("Line {line_no}: select a unit."))?;
+
+        // Confirm both selected master records still exist and are active.
+        let manufacturer_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(
+                SELECT 1 FROM manufacturers WHERE id = ?1 AND active = 1
+            )",
+                [manufacturer_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Line {line_no}: verify manufacturer: {e}"))?;
+
+        if !manufacturer_exists {
+            return Err(format!(
+                "Line {line_no}: selected manufacturer is unavailable."
+            ));
+        }
+
+        let unit_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(
+                SELECT 1 FROM units WHERE id = ?1 AND active = 1
+            )",
+                [unit_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Line {line_no}: verify unit: {e}"))?;
+
+        if !unit_exists {
+            return Err(format!("Line {line_no}: selected unit is unavailable."));
+        }
+
+        // Check for an existing product before attempting insertion.
+        let duplicate: bool = tx
+            .query_row(
+                "SELECT EXISTS(
+                SELECT 1 FROM products
+                WHERE name = ?1 COLLATE NOCASE
+                AND brand_name = ?2 COLLATE NOCASE
+                AND composition = ?3 COLLATE NOCASE
+            )",
+                params![name, brand, composition],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Line {line_no}: check duplicate product: {e}"))?;
+
+        if duplicate {
+            return Err(format!(
+                "Line {line_no}: this product already exists. Select the existing product instead."
+            ));
+        }
+
+        tx.execute(
+            "INSERT INTO products (
+                name,
+                brand_name,
+                generic_name,
+                composition,
+                manufacturer_id,
+                unit_id,
+                hsn_code,
+                gst_percent,
+                schedule,
+                barcode,
+                reorder_level
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                name,
+                brand,
+                product.generic_name.trim(),
+                composition,
+                manufacturer_id,
+                unit_id,
+                hsn,
+                product.gst_percent,
+                product.schedule.trim(),
+                product.barcode.trim(),
+                product.reorder_level,
+            ],
+        ).map_err(|e| {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                format!("Line {line_no}: a product with this name, brand and composition already exists.")
+            } else {
+                format!("Line {line_no}: create product: {e}")
+            }
+        })?;
+
+        Ok(tx.last_insert_rowid())
     }
 
     pub(crate) fn connection(&self) -> Result<Connection, String> {
@@ -1298,6 +1579,16 @@ impl Database {
         if settings.legal_name.trim().is_empty() {
             return Err("Company legal name is required.".into());
         }
+        let company_state_code = settings.state_code.trim();
+        if !is_valid_state_code(company_state_code) {
+            return Err("Select a valid company GST state.".into());
+        }
+        if state_name(company_state_code) != Some(settings.state.trim()) {
+            return Err(
+                "Company state name and state code do not match. Select the state again.".into(),
+            );
+        }
+        validate_gstin_state(&settings.gstin, company_state_code, "Company", true)?;
         let connection = self.year_connection(start_year)?;
         connection.execute(
             "INSERT INTO company_settings (
@@ -1883,6 +2174,16 @@ impl Database {
         if customer.credit_limit_paise < 0 {
             return Err("Credit limit cannot be negative.".into());
         }
+        let customer_state_code = customer.state_code.trim();
+        if !is_valid_state_code(customer_state_code) {
+            return Err("Select a valid customer state.".into());
+        }
+        if state_name(customer_state_code) != Some(customer.state.trim()) {
+            return Err(
+                "Customer state name and state code do not match. Select the state again.".into(),
+            );
+        }
+        validate_gstin_state(&customer.gstin, customer_state_code, "Customer", false)?;
         let connection = self.year_connection(year)?;
         let result = if let Some(id) = id {
             connection.execute(
@@ -1990,6 +2291,16 @@ impl Database {
         if supplier.credit_limit_paise < 0 {
             return Err("Credit limit cannot be negative.".into());
         }
+        let supplier_state_code = supplier.state_code.trim();
+        if !is_valid_state_code(supplier_state_code) {
+            return Err("Select a valid supplier state.".into());
+        }
+        if state_name(supplier_state_code) != Some(supplier.state.trim()) {
+            return Err(
+                "Supplier state name and state code do not match. Select the state again.".into(),
+            );
+        }
+        validate_gstin_state(&supplier.gstin, supplier_state_code, "Supplier", false)?;
         let mut connection = self.year_connection(year)?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -2158,8 +2469,8 @@ impl Database {
             .optional()
             .map_err(|e| format!("Read company GST state: {e}"))?
             .unwrap_or_default();
-        let local_supply =
-            !company_state.trim().is_empty() && company_state.trim() == supplier.2.trim();
+        validate_gstin_state(&supplier.1, &supplier.2, "Supplier", false)?;
+        let gst_type = gst_type_for_states(&company_state, &supplier.2)?;
         let year_counter: i64 = tx
             .query_row(
                 "SELECT last_number FROM purchase_counters WHERE financial_year_start=?1",
@@ -2179,9 +2490,16 @@ impl Database {
         let mut total_sgst: i64 = 0;
         let mut total_igst: i64 = 0;
         for (index, line) in draft.lines.iter().enumerate() {
-            if line.product_id <= 0 {
-                return Err(format!("Line {}: select a product.", index + 1));
-            }
+            let product_id = if let Some(new_product) = &line.new_product {
+                Self::insert_purchase_product(&tx, new_product, index + 1)?
+            } else if line.product_id > 0 {
+                line.product_id
+            } else {
+                return Err(format!(
+                    "Line {}: select an existing product or create a new one.",
+                    index + 1
+                ));
+            };
             if line.batch_no.trim().is_empty() {
                 return Err(format!("Line {}: batch number is required.", index + 1));
             }
@@ -2215,7 +2533,7 @@ impl Database {
             let product: (String, String, f64, i64, i64) = tx
                 .query_row(
                     "SELECT name, hsn_code, gst_percent, active, id FROM products WHERE id=?1",
-                    [line.product_id],
+                    [product_id],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
                 )
                 .map_err(|_e| format!("Line {}: product no longer exists.", index + 1))?;
@@ -2234,13 +2552,7 @@ impl Database {
                 / 10000)
                 .try_into()
                 .map_err(|_| "Purchase taxable amount overflow.")?;
-            let tax = ((taxable as i128 * gst_bp as i128 + 5000) / 10000) as i64;
-            let (cgst, sgst, igst) = if local_supply {
-                let cgst = tax / 2;
-                (cgst, tax - cgst, 0)
-            } else {
-                (0, 0, tax)
-            };
+            let (cgst, sgst, igst) = calculate_gst_split(taxable, gst_bp, gst_type)?;
             total_taxable = total_taxable
                 .checked_add(taxable)
                 .ok_or("Purchase total overflow.")?;
@@ -2254,7 +2566,7 @@ impl Database {
                 .checked_add(igst)
                 .ok_or("Purchase tax total overflow.")?;
             computed.push((
-                line, product.0, product.1, gst_bp, taxable, cgst, sgst, igst,
+                line, product_id, product.0, product.1, gst_bp, taxable, cgst, sgst, igst,
             ));
         }
         let total = total_taxable
@@ -2270,12 +2582,16 @@ impl Database {
             params![purchase_no,draft.supplier_id,supplier.0,supplier.1,draft.supplier_invoice_no.trim(),draft.invoice_date,total_taxable,total_cgst,total_sgst,total_igst,total,draft.notes.trim()]
         ).map_err(|e| if e.to_string().contains("UNIQUE constraint failed") { "This supplier invoice number has already been recorded.".to_owned() } else { format!("Create purchase: {e}") })?;
         let purchase_id = tx.last_insert_rowid();
-        for (index, (line, product_name, hsn, gst_bp, taxable, cgst, sgst, igst)) in
+        for (index, (line, product_id, product_name, hsn, gst_bp, taxable, cgst, sgst, igst)) in
             computed.iter().enumerate()
         {
             let batch_id: i64 = match tx.query_row(
                 "SELECT id FROM batches WHERE product_id=?1 AND batch_no=?2 COLLATE NOCASE AND expiry_date=?3",
-                params![line.product_id,line.batch_no.trim(),line.expiry_date], |r|r.get(0)
+                params![
+                    product_id,
+                    line.batch_no.trim(),
+                    line.expiry_date,
+                ], |r|r.get(0)
             ).optional().map_err(|e|format!("Find batch: {e}"))? {
                 Some(id) => {
                     tx.execute("UPDATE batches SET mrp_paise=?1,purchase_rate_paise=?2,sale_rate_paise=?3 WHERE id=?4",
@@ -2283,13 +2599,33 @@ impl Database {
                 },
                 None => {
                     tx.execute("INSERT INTO batches(product_id,batch_no,expiry_date,mrp_paise,purchase_rate_paise,sale_rate_paise) VALUES(?1,?2,?3,?4,?5,?6)",
-                        params![line.product_id,line.batch_no.trim(),line.expiry_date,line.mrp_paise,line.rate_paise,line.sale_rate_paise]).map_err(|e|format!("Create batch: {e}"))?;
+                        params![product_id,line.batch_no.trim(),line.expiry_date,line.mrp_paise,line.rate_paise,line.sale_rate_paise]).map_err(|e|format!("Create batch: {e}"))?;
                     tx.last_insert_rowid()
                 }
             };
             tx.execute("INSERT INTO purchase_items(purchase_id,line_no,product_id,batch_id,product_name_snap,hsn_snap,gst_basis_points,batch_no_snap,expiry_date_snap,quantity_milli,free_quantity_milli,rate_paise,discount_basis_points,taxable_paise,cgst_paise,sgst_paise,igst_paise,mrp_paise,sale_rate_paise)
                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
-                params![purchase_id,index as i64+1,line.product_id,batch_id,product_name,hsn,gst_bp,line.batch_no.trim(),line.expiry_date,line.quantity_milli,line.free_quantity_milli,line.rate_paise,line.discount_basis_points,taxable,cgst,sgst,igst,line.mrp_paise,line.sale_rate_paise])
+                params![
+                    purchase_id,
+                    index as i64 + 1,
+                    product_id,
+                    batch_id,
+                    product_name,
+                    hsn,
+                    gst_bp,
+                    line.batch_no.trim(),
+                    line.expiry_date,
+                    line.quantity_milli,
+                    line.free_quantity_milli,
+                    line.rate_paise,
+                    line.discount_basis_points,
+                    taxable,
+                    cgst,
+                    sgst,
+                    igst,
+                    line.mrp_paise,
+                    line.sale_rate_paise
+                ])
                 .map_err(|e|format!("Save purchase line {}: {e}",index+1))?;
             tx.execute("UPDATE batches SET qty_on_hand_milli=qty_on_hand_milli+?1,free_qty_on_hand_milli=free_qty_on_hand_milli+?2 WHERE id=?3",
                 params![line.quantity_milli,line.free_quantity_milli,batch_id]).map_err(|e|format!("Apply stock for line {}: {e}",index+1))?;
@@ -2600,7 +2936,8 @@ impl Database {
             .optional()
             .map_err(|e| format!("Read invoice settings: {e}"))?
             .unwrap_or(("INV".into(), String::new()));
-        let local_supply = !settings.1.trim().is_empty() && settings.1.trim() == customer.2.trim();
+        validate_gstin_state(&customer.1, &customer.2, "Customer", false)?;
+        let gst_type = gst_type_for_states(&settings.1, &customer.2)?;
         let previous: i64 = tx
             .query_row(
                 "SELECT last_number FROM sales_counters WHERE financial_year_start=?1",
@@ -2722,13 +3059,7 @@ impl Database {
             let net = item.4 - share;
             remaining_discount -= share;
             remaining_taxable -= item.4;
-            let tax = ((net as i128 * item.3 as i128 + 5000) / 10000) as i64;
-            let (cgst, sgst, igst) = if local_supply {
-                let c = tax / 2;
-                (c, tax - c, 0)
-            } else {
-                (0, 0, tax)
-            };
+            let (cgst, sgst, igst) = calculate_gst_split(net, item.3, gst_type)?;
             item.4 = net;
             item.5 = cgst;
             item.6 = sgst;
@@ -3222,6 +3553,38 @@ mod tests {
     }
 
     #[test]
+    fn gst_state_classification_and_split_are_consistent() {
+        assert_eq!(
+            gst_type_for_states("34", "34").unwrap(),
+            GstType::IntraState
+        );
+        assert_eq!(
+            gst_type_for_states("34", "33").unwrap(),
+            GstType::InterState
+        );
+        assert_eq!(
+            calculate_gst_split(100_000, 1_800, GstType::IntraState),
+            Ok((9_000, 9_000, 0))
+        );
+        assert_eq!(
+            calculate_gst_split(100_000, 1_800, GstType::InterState),
+            Ok((0, 0, 18_000))
+        );
+        assert!(calculate_gst_split(-1, 1_800, GstType::IntraState).is_err());
+        assert!(calculate_gst_split(100_000, 10_001, GstType::InterState).is_err());
+        assert!(gst_type_for_states("", "34").is_err());
+        assert!(gst_type_for_states("34", "XX").is_err());
+    }
+
+    #[test]
+    fn gstin_state_must_match_selected_state() {
+        assert!(validate_gstin_state("34ABCDE1234F1Z5", "34", "Customer", false).is_ok());
+        assert!(validate_gstin_state("33ABCDE1234F1Z5", "34", "Customer", false).is_err());
+        assert!(validate_gstin_state("", "34", "Customer", false).is_ok());
+        assert!(validate_gstin_state("", "34", "Company", true).is_err());
+    }
+
+    #[test]
     fn global_database_and_current_year_database_initialize() {
         let root = temporary_directory("initialize");
         let db = Database::open_at(root.clone()).expect("database should initialize");
@@ -3268,6 +3631,8 @@ mod tests {
         let mut settings = CompanySettings::default();
         settings.legal_name = "ASTER Medical Wholesale".into();
         settings.gstin = "33ABCDE1234F1Z5".into();
+        settings.state = "Tamil Nadu".into();
+        settings.state_code = "33".into();
         db.save_company_settings(2040, &settings)
             .expect("settings should save");
         assert_eq!(

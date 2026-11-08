@@ -2,7 +2,10 @@ use eframe::egui::{
     self, Align, Color32, FontId, Id, Key, Margin, Rect, RichText, Sense, Stroke, Vec2,
 };
 
-use crate::{app::AsterApp, database::CompanySettings};
+use crate::{
+    app::AsterApp,
+    database::{CompanySettings, GST_STATES, is_valid_state_code, state_name},
+};
 
 const INK: Color32 = Color32::from_rgb(43, 39, 52);
 const MUTED: Color32 = Color32::from_rgb(100, 94, 111);
@@ -13,48 +16,6 @@ const PURPLE_TINT: Color32 = Color32::from_rgb(241, 237, 248);
 const BORDER: Color32 = Color32::from_rgb(226, 223, 232);
 const DANGER: Color32 = Color32::from_rgb(176, 58, 58);
 const AMBER: Color32 = Color32::from_rgb(200, 133, 30);
-
-/// GST state codes (code, name).
-const STATES: &[(&str, &str)] = &[
-    ("01", "Jammu & Kashmir"),
-    ("02", "Himachal Pradesh"),
-    ("03", "Punjab"),
-    ("04", "Chandigarh"),
-    ("05", "Uttarakhand"),
-    ("06", "Haryana"),
-    ("07", "Delhi"),
-    ("08", "Rajasthan"),
-    ("09", "Uttar Pradesh"),
-    ("10", "Bihar"),
-    ("11", "Sikkim"),
-    ("12", "Arunachal Pradesh"),
-    ("13", "Nagaland"),
-    ("14", "Manipur"),
-    ("15", "Mizoram"),
-    ("16", "Tripura"),
-    ("17", "Meghalaya"),
-    ("18", "Assam"),
-    ("19", "West Bengal"),
-    ("20", "Jharkhand"),
-    ("21", "Odisha"),
-    ("22", "Chhattisgarh"),
-    ("23", "Madhya Pradesh"),
-    ("24", "Gujarat"),
-    ("26", "Dadra & Nagar Haveli and Daman & Diu"),
-    ("27", "Maharashtra"),
-    ("29", "Karnataka"),
-    ("30", "Goa"),
-    ("31", "Lakshadweep"),
-    ("32", "Kerala"),
-    ("33", "Tamil Nadu"),
-    ("34", "Puducherry"),
-    ("35", "Andaman & Nicobar Islands"),
-    ("36", "Telangana"),
-    ("37", "Andhra Pradesh"),
-    ("38", "Ladakh"),
-    ("97", "Other Territory"),
-    ("99", "Centre Jurisdiction"),
-];
 
 #[derive(Clone)]
 struct CompanyForm {
@@ -266,8 +227,15 @@ fn all_errors(s: &CompanySettings) -> Vec<String> {
         errors.push(required(&s.bank_account_number, "Account number"));
         errors.push(required(&s.bank_ifsc, "IFSC"));
     }
+    if !is_valid_state_code(&s.state_code) {
+        errors.push(Some("Select a valid GST state.".into()));
+    } else if state_name(&s.state_code) != Some(s.state.trim()) {
+        errors.push(Some(
+            "State name and state code do not match. Select the state again.".into(),
+        ));
+    }
     let gst_state = s.gstin.trim().get(0..2).unwrap_or("");
-    if gst_state.len() == 2 && !s.state_code.is_empty() && gst_state != s.state_code {
+    if gst_state.len() == 2 && gst_state != s.state_code {
         errors.push(Some(
             "GSTIN state does not match the selected state.".into(),
         ));
@@ -501,7 +469,7 @@ fn card_business(ui: &mut egui::Ui, s: &mut CompanySettings, submitted: bool) {
                 // Pre-fill the state from the first two digits of the GSTIN.
                 if let Some(code) = s.gstin.get(0..2) {
                     if s.state.is_empty() {
-                        if let Some((c, n)) = STATES.iter().find(|(c, _)| *c == code) {
+                        if let Some((c, n)) = GST_STATES.iter().find(|(c, _)| *c == code) {
                             s.state = (*n).to_owned();
                             s.state_code = (*c).to_owned();
                         }
@@ -825,11 +793,13 @@ fn text_field(
 
 fn state_picker(ui: &mut egui::Ui, s: &mut CompanySettings, submitted: bool) {
     label_row(ui, "State", true);
-    let error = if s.state.trim().is_empty() {
-        Some("State is required.".to_owned())
+    let error = if s.state.trim().is_empty() || !is_valid_state_code(&s.state_code) {
+        Some("Select a valid state.".to_owned())
+    } else if state_name(&s.state_code) != Some(s.state.trim()) {
+        Some("State name and state code do not match.".to_owned())
     } else {
         let gst_state = s.gstin.trim().get(0..2).unwrap_or("");
-        if gst_state.len() == 2 && !s.state_code.is_empty() && gst_state != s.state_code {
+        if gst_state.len() == 2 && gst_state != s.state_code {
             Some("GSTIN state does not match the selected state.".to_owned())
         } else {
             None
@@ -851,7 +821,7 @@ fn state_picker(ui: &mut egui::Ui, s: &mut CompanySettings, submitted: bool) {
             .width(combo_w)
             .selected_text(selected)
             .show_ui(ui, |ui| {
-                for (code, name) in STATES {
+                for (code, name) in GST_STATES {
                     if ui
                         .selectable_label(s.state_code == *code, format!("{code}  ·  {name}"))
                         .clicked()
