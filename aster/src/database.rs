@@ -16,7 +16,7 @@ use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 use crate::date::local_date;
 
 const CURRENT_GLOBAL_SCHEMA: i64 = 2;
-const CURRENT_YEAR_SCHEMA: i64 = 8;
+const CURRENT_YEAR_SCHEMA: i64 = 10;
 const MIN_FINANCIAL_YEAR: i32 = 1900;
 const MAX_FINANCIAL_YEAR: i32 = 9998;
 
@@ -334,9 +334,34 @@ pub(crate) struct SalesInvoiceDraft {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SalesInvoiceDetail {
     pub invoice_no: String,
+
+    // Seller: your own company from Company Settings
+    pub seller_legal_name: String,
+    pub seller_trade_name: String,
+    pub seller_gstin: String,
+    pub seller_drug_license_1: String,
+    pub seller_drug_license_2: String,
+    pub seller_address_line1: String,
+    pub seller_address_line2: String,
+    pub seller_city: String,
+    pub seller_state: String,
+    pub seller_state_code: String,
+    pub seller_pincode: String,
+    pub seller_phone: String,
+    pub seller_email: String,
+
+    // Buyer: customer from Customer Master
     pub customer_name: String,
     pub customer_gstin: String,
     pub customer_state_code: String,
+    pub customer_drug_license: String,
+    pub customer_address_line1: String,
+    pub customer_address_line2: String,
+    pub customer_city: String,
+    pub customer_state: String,
+    pub customer_pincode: String,
+    pub customer_phone: String,
+
     pub invoice_date: String,
     pub status: String,
     pub taxable_paise: i64,
@@ -1102,6 +1127,117 @@ impl Database {
                     COMMIT;",
                 )
                 .map_err(|error| format!("Apply free quantity migration: {error}"))?;
+        }
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| format!("Re-read invoice schema version: {error}"))?;
+
+        if version < 9 {
+            connection
+                .execute_batch(
+                    "BEGIN IMMEDIATE;
+
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_legal_name_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_trade_name_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_gstin_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_drug_license_1_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_drug_license_2_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_address_line1_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_address_line2_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_city_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_state_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_state_code_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_pincode_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_phone_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN seller_email_snap TEXT NOT NULL DEFAULT '';
+
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_drug_license_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_address_line1_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_address_line2_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_city_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_state_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_pincode_snap TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE sales_invoices
+                        ADD COLUMN customer_phone_snap TEXT NOT NULL DEFAULT '';
+
+                    INSERT OR IGNORE INTO schema_migrations(version)
+                        VALUES (9);
+
+                    PRAGMA user_version = 9;
+                    COMMIT;",
+                )
+                .map_err(|error| format!("Apply invoice identity snapshot migration: {error}"))?;
+        }
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| format!("Re-read invoice schema version: {error}"))?;
+
+        if version < 10 {
+            // Check existing columns so this migration also works on
+            // databases where some or all customer snapshots already exist.
+            let existing_columns = {
+                let mut statement = connection
+                    .prepare("PRAGMA table_info(sales_invoices)")
+                    .map_err(|error| format!("Inspect sales invoice columns: {error}"))?;
+
+                let rows = statement
+                    .query_map([], |row| row.get::<_, String>(1))
+                    .map_err(|error| format!("Read sales invoice columns: {error}"))?;
+
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| format!("Collect sales invoice columns: {error}"))?
+            };
+
+            let customer_columns = [
+                ("customer_drug_license_snap", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_address_line1_snap", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_address_line2_snap", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_city_snap", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_state_snap", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_pincode_snap", "TEXT NOT NULL DEFAULT ''"),
+                ("customer_phone_snap", "TEXT NOT NULL DEFAULT ''"),
+            ];
+
+            let mut migration_sql = String::from("BEGIN IMMEDIATE;\n");
+
+            for (column, definition) in customer_columns {
+                if !existing_columns.iter().any(|existing| existing == column) {
+                    migration_sql.push_str(&format!(
+                        "ALTER TABLE sales_invoices ADD COLUMN {column} {definition};\n"
+                    ));
+                }
+            }
+
+            migration_sql.push_str(
+                "INSERT OR IGNORE INTO schema_migrations(version) VALUES (10);
+                 PRAGMA user_version = 10;
+                 COMMIT;",
+            );
+
+            connection
+                .execute_batch(&migration_sql)
+                .map_err(|error| format!("Apply customer snapshot migration: {error}"))?;
         }
 
         let stored_year: Option<i32> = connection
@@ -2766,19 +2902,57 @@ impl Database {
         let mut detail = connection
             .query_row(
                 "SELECT
-                    id, invoice_no, customer_name_snap, customer_gstin_snap,
-                    customer_state_code_snap, invoice_date, status,
-                    taxable_paise, cgst_paise, sgst_paise, igst_paise,
-                    total_paise, received_paise, payment_mode, notes
-                 FROM sales_invoices
-                 WHERE id = ?1",
+                id, invoice_no,
+                customer_name_snap, customer_gstin_snap,
+                customer_state_code_snap, invoice_date, status,
+                taxable_paise, cgst_paise, sgst_paise, igst_paise,
+                total_paise, received_paise, payment_mode, notes,
+
+                seller_legal_name_snap, seller_trade_name_snap,
+                seller_gstin_snap, seller_drug_license_1_snap,
+                seller_drug_license_2_snap,
+                seller_address_line1_snap, seller_address_line2_snap,
+                seller_city_snap, seller_state_snap,
+                seller_state_code_snap, seller_pincode_snap,
+                seller_phone_snap, seller_email_snap,
+
+                customer_drug_license_snap,
+                customer_address_line1_snap, customer_address_line2_snap,
+                customer_city_snap, customer_state_snap,
+                customer_pincode_snap, customer_phone_snap
+
+            FROM sales_invoices
+            WHERE id = ?1",
                 [invoice_id],
                 |row| {
                     Ok(SalesInvoiceDetail {
                         invoice_no: row.get(1)?,
+
+                        seller_legal_name: row.get(15)?,
+                        seller_trade_name: row.get(16)?,
+                        seller_gstin: row.get(17)?,
+                        seller_drug_license_1: row.get(18)?,
+                        seller_drug_license_2: row.get(19)?,
+                        seller_address_line1: row.get(20)?,
+                        seller_address_line2: row.get(21)?,
+                        seller_city: row.get(22)?,
+                        seller_state: row.get(23)?,
+                        seller_state_code: row.get(24)?,
+                        seller_pincode: row.get(25)?,
+                        seller_phone: row.get(26)?,
+                        seller_email: row.get(27)?,
+
                         customer_name: row.get(2)?,
                         customer_gstin: row.get(3)?,
                         customer_state_code: row.get(4)?,
+                        customer_drug_license: row.get(28)?,
+                        customer_address_line1: row.get(29)?,
+                        customer_address_line2: row.get(30)?,
+                        customer_city: row.get(31)?,
+                        customer_state: row.get(32)?,
+                        customer_pincode: row.get(33)?,
+                        customer_phone: row.get(34)?,
+
                         invoice_date: row.get(5)?,
                         status: row.get(6)?,
                         taxable_paise: row.get(7)?,
@@ -2789,6 +2963,7 @@ impl Database {
                         received_paise: row.get(12)?,
                         payment_mode: row.get(13)?,
                         notes: row.get(14)?,
+
                         ..Default::default()
                     })
                 },
@@ -2917,25 +3092,112 @@ impl Database {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| format!("Start sales transaction: {e}"))?;
-        let customer: (String, String, String, i64) = tx
+        let customer: (
+            String,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+        ) = tx
             .query_row(
-                "SELECT name,gstin,state_code,active FROM customers WHERE id=?1",
+                "SELECT
+                    name, gstin, state_code, active,
+                    drug_license, address_line1, address_line2,
+                    city, state, pincode, phone, email
+                FROM customers WHERE id=?1",
                 [draft.customer_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
+                        r.get(10)?,
+                        r.get(11)?,
+                    ))
+                },
             )
             .map_err(|_| "Selected customer no longer exists.".to_owned())?;
         if customer.3 == 0 {
             return Err("This customer is inactive.".into());
         }
-        let settings: (String, String) = tx
+        let settings: (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+        ) = tx
             .query_row(
-                "SELECT invoice_prefix,state_code FROM company_settings WHERE id=1",
+                "SELECT
+                    invoice_prefix, state_code,
+                    legal_name, trade_name, gstin,
+                    drug_license_1, drug_license_2,
+                    address_line1, address_line2,
+                    city, state, pincode, phone, email
+                FROM company_settings WHERE id=1",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                        r.get(8)?,
+                        r.get(9)?,
+                        r.get(10)?,
+                        r.get(11)?,
+                        r.get(12)?,
+                        r.get(13)?,
+                    ))
+                },
             )
             .optional()
             .map_err(|e| format!("Read invoice settings: {e}"))?
-            .unwrap_or(("INV".into(), String::new()));
+            .unwrap_or_else(|| {
+                (
+                    "INV".into(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                )
+            });
         validate_gstin_state(&customer.1, &customer.2, "Customer", false)?;
         let gst_type = gst_type_for_states(&settings.1, &customer.2)?;
         let previous: i64 = tx
@@ -3089,7 +3351,73 @@ impl Database {
             );
         }
         tx.execute("INSERT INTO sales_counters(financial_year_start,last_number) VALUES(?1,?2) ON CONFLICT(financial_year_start) DO UPDATE SET last_number=excluded.last_number",params![year,next]).map_err(|e|format!("Reserve invoice number: {e}"))?;
-        tx.execute("INSERT INTO sales_invoices(invoice_no,customer_id,customer_name_snap,customer_gstin_snap,customer_state_code_snap,invoice_date,taxable_paise,cgst_paise,sgst_paise,igst_paise,total_paise,received_paise,payment_mode,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",params![invoice_no,draft.customer_id,customer.0,customer.1,customer.2,draft.invoice_date,taxable_after_discount,cgst_total,sgst_total,igst_total,total,draft.amount_received_paise,draft.payment_mode.trim(),draft.notes.trim()]).map_err(|e|format!("Save sales invoice: {e}"))?;
+        tx.execute(
+            "INSERT INTO sales_invoices (
+            invoice_no, customer_id,
+            customer_name_snap, customer_gstin_snap,
+            customer_state_code_snap,
+
+            seller_legal_name_snap, seller_trade_name_snap,
+            seller_gstin_snap, seller_drug_license_1_snap,
+            seller_drug_license_2_snap,
+            seller_address_line1_snap, seller_address_line2_snap,
+            seller_city_snap, seller_state_snap,
+            seller_state_code_snap, seller_pincode_snap,
+            seller_phone_snap, seller_email_snap,
+
+            customer_drug_license_snap,
+            customer_address_line1_snap, customer_address_line2_snap,
+            customer_city_snap, customer_state_snap,
+            customer_pincode_snap, customer_phone_snap,
+
+            invoice_date, taxable_paise, cgst_paise,
+            sgst_paise, igst_paise, total_paise,
+            received_paise, payment_mode, notes
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5,
+            ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+            ?14, ?15, ?16, ?17, ?18,
+            ?19, ?20, ?21, ?22, ?23, ?24, ?25,
+            ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34
+        )",
+            params![
+                invoice_no,
+                draft.customer_id,
+                customer.0,
+                customer.1,
+                customer.2,
+                settings.2,
+                settings.3,
+                settings.4,
+                settings.5,
+                settings.6,
+                settings.7,
+                settings.8,
+                settings.9,
+                settings.10,
+                settings.1,
+                settings.11,
+                settings.12,
+                settings.13,
+                customer.4,
+                customer.5,
+                customer.6,
+                customer.7,
+                customer.8,
+                customer.9,
+                customer.10,
+                draft.invoice_date,
+                taxable_after_discount,
+                cgst_total,
+                sgst_total,
+                igst_total,
+                total,
+                draft.amount_received_paise,
+                draft.payment_mode.trim(),
+                draft.notes.trim()
+            ],
+        )
+        .map_err(|e| format!("Save sales invoice: {e}"))?;
         let invoice_id = tx.last_insert_rowid();
         for (index, item) in computed.iter().enumerate() {
             let line = &item.0;

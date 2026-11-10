@@ -265,8 +265,11 @@ fn backdrop(ctx: &egui::Context, salt: &'static str, progress: f32) -> bool {
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
             let (rect, resp) = ui.allocate_exact_size(screen.size(), Sense::click());
-            ui.painter()
-                .rect_filled(rect, 0.0, Color32::from_black_alpha((95.0 * progress) as u8));
+            ui.painter().rect_filled(
+                rect,
+                0.0,
+                Color32::from_black_alpha((95.0 * progress) as u8),
+            );
             resp.clicked()
         })
         .inner
@@ -282,9 +285,9 @@ fn tween_money(
     first_start: f64,
 ) -> i64 {
     let id = Id::new(("inv_tween", epoch, key));
-    let (mut from, mut to, mut start): (i64, i64, f64) = ctx
-        .data(|d| d.get_temp(id))
-        .unwrap_or((0, target, first_start));
+    let (mut from, mut to, mut start): (i64, i64, f64) =
+        ctx.data(|d| d.get_temp(id))
+            .unwrap_or((0, target, first_start));
     let duration = 0.7_f64;
     let shown = |from: i64, to: i64, start: f64| -> (i64, bool) {
         let t = ((now - start) / duration).clamp(0.0, 1.0);
@@ -360,7 +363,14 @@ pub(crate) fn show(ui: &mut egui::Ui, app: &mut AsterApp) {
     let chart_grow = grow_progress(now, start, 0.55, 0.9);
     let kpi_total = tween_money(&ctx, epoch, "total", st.total, now, start + 0.15);
     let kpi_received = tween_money(&ctx, epoch, "received", st.received, now, start + 0.2);
-    let kpi_outstanding = tween_money(&ctx, epoch, "outstanding", st.outstanding, now, start + 0.25);
+    let kpi_outstanding = tween_money(
+        &ctx,
+        epoch,
+        "outstanding",
+        st.outstanding,
+        now,
+        start + 0.25,
+    );
 
     let mut open_payment: Option<Invoice> = None;
     let mut open_history: Option<i64> = None;
@@ -1005,8 +1015,10 @@ fn monthly_card(ui: &mut Ui, year: i32, scoped: &[Invoice], grow: f32) {
         let last: usize = ctx.data(|d| d.get_temp(last_id)).unwrap_or(0);
         let target_idx = hovered.unwrap_or(last);
         ctx.data_mut(|d| d.insert_temp(last_id, target_idx));
-        let band_x = ctx.animate_value_with_time(Id::new("inv_month_band_x"), target_idx as f32, 0.12);
-        let band_a = ctx.animate_bool_with_time(Id::new("inv_month_band_a"), hovered.is_some(), 0.12);
+        let band_x =
+            ctx.animate_value_with_time(Id::new("inv_month_band_x"), target_idx as f32, 0.12);
+        let band_a =
+            ctx.animate_bool_with_time(Id::new("inv_month_band_a"), hovered.is_some(), 0.12);
         if band_a > 0.01 {
             let cx = plot.left() + group_w * (band_x + 0.5);
             painter.rect_filled(
@@ -1228,7 +1240,9 @@ fn register_card(
                 (needle.is_empty()
                     || i.number.to_lowercase().contains(&needle)
                     || i.customer.to_lowercase().contains(&needle))
-                    && cutoff.as_ref().map_or(true, |c| i.date.as_str() >= c.as_str())
+                    && cutoff
+                        .as_ref()
+                        .map_or(true, |c| i.date.as_str() >= c.as_str())
             })
             .collect();
 
@@ -1246,11 +1260,7 @@ fn register_card(
                     .filter(|i| matches_filter(i, filter))
                     .count();
                 let selected = state.filter == filter;
-                let t = ctx.animate_bool_with_time(
-                    Id::new(("inv_chip", label)),
-                    selected,
-                    0.15,
-                );
+                let t = ctx.animate_bool_with_time(Id::new(("inv_chip", label)), selected, 0.15);
                 let button = egui::Button::new(
                     RichText::new(format!("{label}   {n}"))
                         .size(13.0)
@@ -1278,19 +1288,12 @@ fn register_card(
             let ord = match sort_key {
                 SortKey::Invoice => a.number.cmp(&b.number),
                 SortKey::Date => a.date.cmp(&b.date).then(a.id.cmp(&b.id)),
-                SortKey::Customer => a
-                    .customer
-                    .to_lowercase()
-                    .cmp(&b.customer.to_lowercase()),
+                SortKey::Customer => a.customer.to_lowercase().cmp(&b.customer.to_lowercase()),
                 SortKey::Total => a.total.cmp(&b.total),
                 SortKey::Received => a.received.cmp(&b.received),
                 SortKey::Balance => a.balance().cmp(&b.balance()),
             };
-            if sort_asc {
-                ord
-            } else {
-                ord.reverse()
-            }
+            if sort_asc { ord } else { ord.reverse() }
         });
 
         ui.add_space(14.0);
@@ -1419,7 +1422,8 @@ fn register_card(
                                 0.12,
                             );
                             let base = if idx % 2 == 0 { CARD } else { ROW_ALT };
-                            ui.painter().rect_filled(rect, 0.0, mix(base, PURPLE_BG, hot * 0.8));
+                            ui.painter()
+                                .rect_filled(rect, 0.0, mix(base, PURPLE_BG, hot * 0.8));
                             if hot > 0.01 {
                                 ui.painter().rect_filled(
                                     Rect::from_min_size(rect.min, Vec2::new(3.0, ROW_H)),
@@ -1648,7 +1652,10 @@ fn payment_window(
         .collapsible(false)
         .resizable(false)
         .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, (1.0 - progress) * 18.0))
+        .anchor(
+            Align2::CENTER_CENTER,
+            Vec2::new(0.0, (1.0 - progress) * 18.0),
+        )
         .frame(dialog_frame(ctx, progress))
         .show(ctx, |ui| {
             ui.set_opacity(progress);
@@ -1844,7 +1851,10 @@ fn history_window(
         .collapsible(false)
         .resizable(false)
         .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, (1.0 - progress) * 18.0))
+        .anchor(
+            Align2::CENTER_CENTER,
+            Vec2::new(0.0, (1.0 - progress) * 18.0),
+        )
         .frame(dialog_frame(ctx, progress))
         .show(ctx, |ui| {
             ui.set_opacity(progress);
@@ -2077,6 +2087,121 @@ fn load_invoice_detail(app: &AsterApp, state: &mut State, invoice_id: i64) {
     }
 }
 
+fn invoice_party_card(
+    ui: &mut Ui,
+    heading: &str,
+    name: &str,
+    secondary_name: &str,
+    gstin: &str,
+    state_code: &str,
+    drug_licenses: &[&str],
+    address_lines: &[&str],
+    city: &str,
+    state: &str,
+    pincode: &str,
+    phone: &str,
+    email: &str,
+) {
+    egui::Frame::new()
+        .fill(ROW_ALT)
+        .stroke(Stroke::new(1.0_f32, BORDER))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::same(14))
+        .show(ui, |ui| {
+            ui.label(RichText::new(heading).size(10.5).strong().color(PURPLE));
+
+            let display_name = if !name.is_empty() {
+                name
+            } else if !secondary_name.is_empty() {
+                secondary_name
+            } else {
+                "Details unavailable"
+            };
+
+            ui.label(RichText::new(display_name).size(15.0).strong().color(TEXT));
+
+            if !secondary_name.is_empty() && !name.is_empty() && secondary_name != name {
+                ui.label(RichText::new(secondary_name).size(12.0).color(MUTED));
+            }
+
+            if !gstin.is_empty() {
+                ui.label(
+                    RichText::new(format!("GSTIN: {gstin}"))
+                        .size(12.0)
+                        .color(MUTED),
+                );
+            }
+
+            if !state_code.is_empty() {
+                let label = state_name(state_code)
+                    .map(|name| format!("{state_code} · {name}"))
+                    .unwrap_or_else(|| state_code.to_owned());
+
+                ui.label(
+                    RichText::new(format!("State: {label}"))
+                        .size(12.0)
+                        .color(MUTED),
+                );
+            }
+
+            for license in drug_licenses {
+                if !license.is_empty() {
+                    ui.label(
+                        RichText::new(format!("Drug Licence: {license}"))
+                            .size(12.0)
+                            .color(MUTED),
+                    );
+                }
+            }
+
+            let address = address_lines
+                .iter()
+                .copied()
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            if !address.is_empty() {
+                ui.label(RichText::new(address).size(12.0).color(TEXT));
+            }
+
+            let locality = [city, state]
+                .iter()
+                .copied()
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            if !locality.is_empty() || !pincode.is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "{}{}",
+                        locality,
+                        if pincode.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" - {pincode}")
+                        }
+                    ))
+                    .size(12.0)
+                    .color(MUTED),
+                );
+            }
+
+            if !phone.is_empty() {
+                ui.label(
+                    RichText::new(format!("Phone: {phone}"))
+                        .size(12.0)
+                        .color(MUTED),
+                );
+            }
+
+            if !email.is_empty() {
+                ui.label(RichText::new(email).size(12.0).color(MUTED));
+            }
+        });
+}
+
 fn invoice_detail_window(
     ctx: &egui::Context,
     invoice: &crate::database::SalesInvoiceDetail,
@@ -2090,7 +2215,10 @@ fn invoice_detail_window(
         .order(egui::Order::Foreground)
         .default_size(Vec2::new(900.0, 680.0))
         .min_size(Vec2::new(620.0, 420.0))
-        .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, (1.0 - progress) * 18.0))
+        .anchor(
+            Align2::CENTER_CENTER,
+            Vec2::new(0.0, (1.0 - progress) * 18.0),
+        )
         .frame(dialog_frame(ctx, progress))
         .show(ctx, |ui| {
             ui.set_opacity(progress);
@@ -2125,39 +2253,46 @@ fn invoice_detail_window(
             });
 
             ui.add_space(12.0);
-            egui::Frame::new()
-                .fill(ROW_ALT)
-                .stroke(Stroke::new(1.0_f32, BORDER))
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(Margin::same(14))
-                .show(ui, |ui| {
-                    ui.label(RichText::new("BILL TO").size(10.5).strong().color(PURPLE));
-                    ui.label(
-                        RichText::new(&invoice.customer_name)
-                            .size(16.0)
-                            .strong()
-                            .color(TEXT),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        if !invoice.customer_gstin.is_empty() {
-                            ui.label(
-                                RichText::new(format!("GSTIN: {}", invoice.customer_gstin))
-                                    .size(12.5)
-                                    .color(MUTED),
-                            );
-                        }
-                        if !invoice.customer_state_code.is_empty() {
-                            let state_label = state_name(&invoice.customer_state_code)
-                                .map(|name| format!("{} · {name}", invoice.customer_state_code))
-                                .unwrap_or_else(|| invoice.customer_state_code.clone());
-                            ui.label(
-                                RichText::new(format!("State: {state_label}"))
-                                    .size(12.5)
-                                    .color(MUTED),
-                            );
-                        }
-                    });
-                });
+
+            ui.columns(2, |columns| {
+                invoice_party_card(
+                    &mut columns[0],
+                    "FROM / SELLER",
+                    &invoice.seller_legal_name,
+                    &invoice.seller_trade_name,
+                    &invoice.seller_gstin,
+                    &invoice.seller_state_code,
+                    &[
+                        &invoice.seller_drug_license_1,
+                        &invoice.seller_drug_license_2,
+                    ],
+                    &[&invoice.seller_address_line1, &invoice.seller_address_line2],
+                    &invoice.seller_city,
+                    &invoice.seller_state,
+                    &invoice.seller_pincode,
+                    &invoice.seller_phone,
+                    &invoice.seller_email,
+                );
+
+                invoice_party_card(
+                    &mut columns[1],
+                    "BILL TO / BUYER",
+                    &invoice.customer_name,
+                    "",
+                    &invoice.customer_gstin,
+                    &invoice.customer_state_code,
+                    &[&invoice.customer_drug_license],
+                    &[
+                        &invoice.customer_address_line1,
+                        &invoice.customer_address_line2,
+                    ],
+                    &invoice.customer_city,
+                    &invoice.customer_state,
+                    &invoice.customer_pincode,
+                    &invoice.customer_phone,
+                    "",
+                );
+            });
 
             ui.add_space(14.0);
             ui.label(RichText::new("ITEMS").size(11.0).strong().color(PURPLE));
