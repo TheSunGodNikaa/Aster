@@ -403,6 +403,94 @@ pub(crate) struct SalesInvoiceBatchDetail {
     pub mrp_paise: i64,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct InvoiceDocument {
+    pub source: SalesInvoiceDetail,
+    pub tax_mode: GstType,
+}
+
+impl InvoiceDocument {
+    pub(crate) fn from_sales_invoice_detail(source: SalesInvoiceDetail) -> Result<Self, String> {
+        let tax_mode = gst_type_for_states(&source.seller_state_code, &source.customer_state_code)
+            .map_err(|error| format!("Cannot determine invoice tax mode: {error}"))?;
+
+        let document = Self { source, tax_mode };
+
+        document.validate_consistency()?;
+
+        Ok(document)
+    }
+
+    fn checked_line_sum(
+        &self,
+        value: fn(&SalesInvoiceItemDetail) -> i64,
+        label: &str,
+    ) -> Result<i64, String> {
+        self.source.items.iter().try_fold(0_i64, |total, item| {
+            total
+                .checked_add(value(item))
+                .ok_or_else(|| format!("{label} validation overflow."))
+        })
+    }
+
+    pub(crate) fn validate_consistency(&self) -> Result<(), String> {
+        let taxable = self.checked_line_sum(|item| item.taxable_paise, "Taxable amount")?;
+
+        let cgst = self.checked_line_sum(|item| item.cgst_paise, "CGST")?;
+
+        let sgst = self.checked_line_sum(|item| item.sgst_paise, "SGST")?;
+
+        let igst = self.checked_line_sum(|item| item.igst_paise, "IGST")?;
+
+        if taxable != self.source.taxable_paise {
+            return Err(
+                "Saved line taxable amounts do not match the invoice taxable total.".into(),
+            );
+        }
+
+        if cgst != self.source.cgst_paise {
+            return Err("Saved line CGST amounts do not match the invoice CGST total.".into());
+        }
+
+        if sgst != self.source.sgst_paise {
+            return Err("Saved line SGST amounts do not match the invoice SGST total.".into());
+        }
+
+        if igst != self.source.igst_paise {
+            return Err("Saved line IGST amounts do not match the invoice IGST total.".into());
+        }
+
+        match self.tax_mode {
+            GstType::IntraState => {
+                if self.source.igst_paise != 0 {
+                    return Err("Local invoice contains an unexpected IGST amount.".into());
+                }
+            }
+            GstType::InterState => {
+                if self.source.cgst_paise != 0 || self.source.sgst_paise != 0 {
+                    return Err("Interstate invoice contains unexpected CGST or SGST.".into());
+                }
+            }
+        }
+
+        // The current database does not store a round-off amount.
+        // Validate against the exact total produced by invoice posting.
+        let expected_total = self
+            .source
+            .taxable_paise
+            .checked_add(self.source.cgst_paise)
+            .and_then(|value| value.checked_add(self.source.sgst_paise))
+            .and_then(|value| value.checked_add(self.source.igst_paise))
+            .ok_or("Invoice total validation overflow.")?;
+
+        if expected_total != self.source.total_paise {
+            return Err("Saved invoice total does not match its taxable and tax amounts.".into());
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PurchaseSummary {
     pub id: i64,

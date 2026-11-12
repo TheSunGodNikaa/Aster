@@ -3,6 +3,7 @@ resource/image (4).jpg
 resource/STOCKMONTH.MDB
 resource/database(1).MDB
 
+Docs/
 
 # Rust build output
 aster/target/
